@@ -306,9 +306,7 @@ export const SureSignalsView = memo(function SureSignalsView({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-1">
             <div className="flex items-center gap-2.5">
-              <span className="inline-flex items-center justify-center rounded-xl bg-[#070709] border border-[#D4AF37]/35 px-1.5 py-1 shadow-[0_0_16px_-6px_rgba(212,175,55,0.28)] shrink-0">
-                <SureIconBadge size="header" />
-              </span>
+              <SureIconBadge variant="header" />
               <h1 className="text-lg sm:text-xl font-display font-bold text-zinc-100">
                 SURE Auto-Scanner
               </h1>

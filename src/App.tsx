@@ -702,45 +702,77 @@ export default function App() {
             </span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('SURE');
-              setUnreadSureAlert(false);
-            }}
-            aria-label="Sure Signal Auto Scanner"
-            className={`relative min-h-[44px] mx-1 my-1 px-1.5 rounded-xl border flex flex-col items-center justify-center gap-0.5 transition-all cursor-pointer ${
-              isNewsPaused
-                ? 'border-red-500/65 bg-red-600/15 text-red-300 shadow-sm shadow-red-500/20'
-                : activeTradeLocked && navSureMarketState === 'SURE_BUY'
-                ? 'border-emerald-500/65 bg-emerald-500/15 text-emerald-300 shadow-sm shadow-emerald-500/20'
-                : activeTradeLocked && navSureMarketState === 'SURE_SELL'
-                ? 'border-red-500/65 bg-red-500/15 text-red-300 shadow-sm shadow-red-500/20'
-                : activeTab === 'SURE'
-                ? 'border-[#D4AF37]/75 bg-[#090A0E] text-[#F5D061] shadow-[0_0_18px_-5px_rgba(212,175,55,0.5)]'
-                : 'border-[#D4AF37]/35 bg-[#090A0E] text-zinc-200 hover:border-[#D4AF37]/65'
-            }`}
-          >
-            {unreadSureAlert && !isNewsPaused && (
-              <span className="absolute top-1 right-1.5 z-10 w-2 h-2 rounded-full bg-[#F5D061] animate-pulse" />
-            )}
-            {isNewsPaused ||
-            (activeTradeLocked &&
-              (navSureMarketState === 'SURE_BUY' || navSureMarketState === 'SURE_SELL')) ? (
-              <>
-                <SureIconBadge size="compact" />
-                <span className="text-[9px] leading-none font-display font-bold tracking-wide whitespace-nowrap">
-                  {isNewsPaused
-                    ? 'NO TRADE'
-                    : navSureMarketState === 'SURE_BUY'
-                    ? 'SURE BUY'
-                    : 'SURE SELL'}
-                </span>
-              </>
-            ) : (
-              <SureIconBadge size="nav" />
-            )}
-          </button>
+          <div className="h-full flex items-center justify-center px-1">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('SURE');
+                setUnreadSureAlert(false);
+              }}
+              aria-label="Sure Signal Auto Scanner"
+              className={`relative w-full h-[46px] px-1.5 rounded-xl border flex flex-col items-center justify-center gap-[3px] transition-all cursor-pointer overflow-hidden ${
+                isNewsPaused
+                  ? 'border-red-400/75 bg-gradient-to-b from-red-600/30 via-red-900/45 to-[#16080A] text-red-100 shadow-[inset_0_1px_0_rgba(252,165,165,0.28),0_4px_16px_-5px_rgba(239,68,68,0.5)]'
+                  : activeTradeLocked && navSureMarketState === 'SURE_BUY'
+                  ? 'border-emerald-400/75 bg-gradient-to-b from-emerald-500/30 via-emerald-900/45 to-[#06140F] text-emerald-100 shadow-[inset_0_1px_0_rgba(110,231,183,0.28),0_4px_16px_-5px_rgba(16,185,129,0.5)]'
+                  : activeTradeLocked && navSureMarketState === 'SURE_SELL'
+                  ? 'border-red-400/75 bg-gradient-to-b from-red-500/30 via-red-900/45 to-[#16080A] text-red-100 shadow-[inset_0_1px_0_rgba(252,165,165,0.28),0_4px_16px_-5px_rgba(239,68,68,0.5)]'
+                  : activeTab === 'SURE'
+                  ? 'border-[#FFE699]/85 bg-gradient-to-b from-[#F8D978] via-[#D4AF37] to-[#9B7516] text-[#09090B] shadow-[inset_0_1px_0_rgba(255,255,255,0.55),0_6px_18px_-4px_rgba(212,175,55,0.65)]'
+                  : 'border-[#D4AF37]/65 bg-gradient-to-b from-[#1E1A11] via-[#12100B] to-[#08090C] text-[#F5D061] hover:border-[#F5D061]/85 hover:from-[#262015] shadow-[inset_0_1px_0_rgba(245,208,97,0.26),0_4px_14px_-6px_rgba(212,175,55,0.38)]'
+              }`}
+            >
+              <span
+                aria-hidden="true"
+                className={`pointer-events-none absolute inset-[2px] rounded-[9px] border ${
+                  activeTab === 'SURE' &&
+                  !isNewsPaused &&
+                  !(
+                    activeTradeLocked &&
+                    (navSureMarketState === 'SURE_BUY' || navSureMarketState === 'SURE_SELL')
+                  )
+                    ? 'border-[#09090B]/15'
+                    : 'border-white/[0.06]'
+                }`}
+              />
+              {unreadSureAlert && !isNewsPaused && (
+                <span className="absolute top-1 right-1.5 z-10 w-2 h-2 rounded-full bg-[#F5D061] ring-2 ring-[#09090B] animate-pulse" />
+              )}
+              <SureIconBadge
+                variant="nav"
+                active={activeTab === 'SURE'}
+                tone={
+                  isNewsPaused
+                    ? 'paused'
+                    : activeTradeLocked && navSureMarketState === 'SURE_BUY'
+                    ? 'buy'
+                    : activeTradeLocked && navSureMarketState === 'SURE_SELL'
+                    ? 'sell'
+                    : 'gold'
+                }
+              />
+              <span
+                className={`relative z-[1] text-[9.5px] leading-none font-display font-extrabold tracking-[0.12em] uppercase whitespace-nowrap ${
+                  activeTab === 'SURE' &&
+                  !isNewsPaused &&
+                  !(
+                    activeTradeLocked &&
+                    (navSureMarketState === 'SURE_BUY' || navSureMarketState === 'SURE_SELL')
+                  )
+                    ? 'text-[#09090B]'
+                    : ''
+                }`}
+              >
+                {isNewsPaused
+                  ? 'NO TRADE'
+                  : activeTradeLocked && navSureMarketState === 'SURE_BUY'
+                  ? 'SURE BUY'
+                  : activeTradeLocked && navSureMarketState === 'SURE_SELL'
+                  ? 'SURE SELL'
+                  : 'SURE'}
+              </span>
+            </button>
+          </div>
 
           <button
             type="button"
