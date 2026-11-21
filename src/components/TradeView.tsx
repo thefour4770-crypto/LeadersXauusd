@@ -31,6 +31,7 @@ import {
   unsubscribeWebPush,
   type NotificationPermissionState,
 } from '../utils/phoneNotifications.ts';
+import { isMarketClosedStatus } from '../utils/marketHours.ts';
 import { getReportSignalConfidence } from '../utils/signalConfidence.ts';
 import { AnalysisProcessingModal } from './AnalysisProcessingModal.tsx';
 import { AnalysisResultView } from './AnalysisResultView.tsx';
@@ -82,6 +83,8 @@ const TradeLivePriceStrip = memo(function TradeLivePriceStrip({
       ? quote.timestamp
       : dataset?.latestTimestamp ?? null;
 
+  const marketClosed = isMarketClosedStatus(freshnessLabel, latestDataTs);
+
   const formattedUpdatedTime = useMemo(() => {
     if (!latestDataTs) return null;
     return new Date(latestDataTs).toLocaleTimeString([], {
@@ -92,7 +95,7 @@ const TradeLivePriceStrip = memo(function TradeLivePriceStrip({
   }, [latestDataTs]);
 
   return (
-    <section className="rounded-2xl border border-white/10 bg-[#121318] p-4">
+    <section className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] p-4">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2 text-xs font-mono text-zinc-400">
@@ -104,15 +107,22 @@ const TradeLivePriceStrip = memo(function TradeLivePriceStrip({
               className={`inline-flex items-center gap-1.5 font-semibold ${
                 freshnessLabel === 'LIVE'
                   ? 'text-emerald-400'
-                  : freshnessLabel === 'DELAYED'
-                  ? 'text-amber-400'
-                  : 'text-red-400'
+                  : marketClosed || freshnessLabel === 'UNAVAILABLE'
+                  ? 'text-red-400'
+                  : 'text-amber-400'
               }`}
             >
               {freshnessLabel === 'LIVE' && (
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               )}
-              {freshnessLabel === 'UNAVAILABLE' ? 'DATA UNAVAILABLE' : freshnessLabel}
+              {marketClosed && (
+                <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
+              )}
+              {freshnessLabel === 'UNAVAILABLE'
+                ? 'DATA UNAVAILABLE'
+                : marketClosed
+                ? 'MARKET CLOSED'
+                : freshnessLabel}
             </span>
           </div>
 
@@ -171,7 +181,7 @@ const TradeLivePriceStrip = memo(function TradeLivePriceStrip({
       </div>
 
       {dataset && (
-        <div className="mt-2.5 pt-2.5 border-t border-white/8 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-zinc-500">
+        <div className="mt-2.5 pt-2.5 border-t border-[#D4AF37]/20 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-zinc-500">
           <span>Candles: {dataset.candleSource}</span>
           <span>{dataset.volumeNote}</span>
         </div>
@@ -616,7 +626,7 @@ export const TradeView = memo(function TradeView({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
         <div className="lg:col-span-8 space-y-4">
           {/* Leader Chart View Only */}
-          <div className="rounded-2xl border border-white/10 bg-[#121318] px-4 py-4 flex flex-col sm:grid sm:grid-cols-3 items-center gap-3">
+          <div className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] px-4 py-4 flex flex-col sm:grid sm:grid-cols-3 items-center gap-3">
             <div className="hidden sm:block" aria-hidden="true" />
             <div className="text-center font-display text-lg sm:text-xl font-bold tracking-[0.24em] text-zinc-100 uppercase select-none">
               LIVE
@@ -690,9 +700,9 @@ export const TradeView = memo(function TradeView({
           ) : (
             <section
               aria-label="Analysis Control Panel"
-              className="rounded-2xl border border-[#D4AF37]/25 bg-[#121318] p-4 space-y-3.5"
+              className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] p-4 space-y-3.5"
             >
-              <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-white/8">
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-[#D4AF37]/20">
                 <div>
                   <div className="text-[10px] font-mono uppercase tracking-[0.14em] text-[#F5D061]">
                     Analysis Control Panel
@@ -737,7 +747,7 @@ export const TradeView = memo(function TradeView({
               />
 
               {/* Prominent Gold Execute Button */}
-              <div className="pt-2.5 border-t border-white/8 space-y-2">
+              <div className="pt-2.5 border-t border-[#D4AF37]/20 space-y-2">
                 <button
                   type="button"
                   onClick={handleRunAnalysis}
@@ -757,7 +767,7 @@ export const TradeView = memo(function TradeView({
           {/* Alert Settings */}
           <section
             aria-label="Phone Alert Settings"
-            className="rounded-2xl border border-white/10 bg-[#121318] px-4 py-3 space-y-2.5"
+            className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] px-4 py-3 space-y-2.5"
           >
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2.5 min-w-0">
@@ -767,7 +777,7 @@ export const TradeView = memo(function TradeView({
                       ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
                       : phoneAlertsEnabled
                       ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
-                      : 'bg-[#181A20] border-white/10 text-zinc-400'
+                      : 'bg-[#181A20] border-[#D4AF37]/25 text-zinc-400'
                   }`}
                 >
                   {phoneAlertsEnabled ? (
@@ -815,7 +825,7 @@ export const TradeView = memo(function TradeView({
                       ? notificationPerm === 'granted'
                         ? 'bg-emerald-500 border-emerald-400'
                         : 'bg-amber-500 border-amber-400'
-                      : 'bg-[#181A20] border-white/15'
+                      : 'bg-[#181A20] border-[#D4AF37]/30'
                   }`}
                 >
                   <span
@@ -844,12 +854,12 @@ export const TradeView = memo(function TradeView({
       </div>
 
       {/* Saved ANALYSE XAUUSD Result History Option (Tap to expand history inside) */}
-      <section aria-label="Saved Analysis History" className="rounded-2xl border border-white/10 bg-[#121318] overflow-hidden">
+      <section aria-label="Saved Analysis History" className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] overflow-hidden">
         <button
           type="button"
           onClick={() => setShowAnalysisHistory((prev) => !prev)}
           aria-expanded={showAnalysisHistory}
-          className="w-full px-4 py-3.5 flex items-center justify-between gap-3 text-left hover:bg-white/[0.03] transition-colors cursor-pointer"
+          className="w-full px-4 py-3.5 flex items-center justify-between gap-3 text-left hover:bg-[#D4AF37]/[0.04] transition-colors cursor-pointer"
         >
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-9 h-9 rounded-xl bg-[#D4AF37]/12 border border-[#D4AF37]/35 flex items-center justify-center text-[#F5D061] shrink-0">
@@ -874,7 +884,7 @@ export const TradeView = memo(function TradeView({
             </div>
           </div>
 
-          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#181A20] border border-white/10 text-xs font-semibold text-[#F5D061] shrink-0">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#181A20] border border-[#D4AF37]/30 text-xs font-semibold text-[#F5D061] shrink-0">
             <span>{showAnalysisHistory ? 'Hide' : 'Open'}</span>
             {showAnalysisHistory ? (
               <ChevronUp className="w-3.5 h-3.5" />
@@ -885,11 +895,11 @@ export const TradeView = memo(function TradeView({
         </button>
 
         {showAnalysisHistory && (
-          <div className="px-4 pb-4 pt-2 border-t border-white/8 space-y-2.5">
+          <div className="px-4 pb-4 pt-2 border-t border-[#D4AF37]/20 space-y-2.5">
             {reportsLoading && savedHistoryItems.length === 0 ? (
-              <div className="h-16 rounded-xl border border-white/8 bg-[#0D0E12] animate-pulse" />
+              <div className="h-16 rounded-xl border border-[#D4AF37]/25 bg-[#0D0E12] animate-pulse" />
             ) : savedHistoryItems.length === 0 ? (
-              <div className="rounded-xl border border-white/8 bg-[#0D0E12] p-4 text-center text-xs text-zinc-400">
+              <div className="rounded-xl border border-[#D4AF37]/25 bg-[#0D0E12] p-4 text-center text-xs text-zinc-400">
                 No saved analysis results yet. Tap <span className="text-[#F5D061] font-semibold">ANALYSE XAUUSD</span> above — every generated result stays saved here automatically.
               </div>
             ) : (
@@ -920,7 +930,7 @@ export const TradeView = memo(function TradeView({
                           setActiveReport(report);
                         }
                       }}
-                      className="rounded-xl border border-white/10 bg-[#0D0E12] hover:border-[#D4AF37]/45 px-3.5 py-2.5 flex items-center justify-between gap-3 cursor-pointer transition-colors"
+                      className="rounded-xl border border-[#D4AF37]/25 bg-[#0D0E12] hover:border-[#D4AF37]/55 px-3.5 py-2.5 flex items-center justify-between gap-3 cursor-pointer transition-colors"
                     >
                       <div className="min-w-0 space-y-1">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
@@ -979,7 +989,7 @@ export const TradeView = memo(function TradeView({
 
       {/* Show / Hide Chart Option positioned below ANALYSE XAUUSD at the bottom */}
       <section className="space-y-4">
-        <div className="rounded-2xl border border-white/10 bg-[#121318] px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] px-4 py-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
             <CandlestickChart className="w-4 h-4 text-[#D4AF37] shrink-0" />
             <div className="min-w-0">
@@ -998,7 +1008,7 @@ export const TradeView = memo(function TradeView({
             aria-expanded={showChart}
             className={`min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-semibold inline-flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 ${
               showChart
-                ? 'bg-[#181A20] border border-white/15 text-zinc-200 hover:border-[#D4AF37]/50 hover:text-[#F5D061]'
+                ? 'bg-[#181A20] border border-[#D4AF37]/35 text-zinc-200 hover:border-[#D4AF37]/60 hover:text-[#F5D061]'
                 : 'bg-[#D4AF37] text-[#09090B] hover:bg-[#F5D061]'
             }`}
           >

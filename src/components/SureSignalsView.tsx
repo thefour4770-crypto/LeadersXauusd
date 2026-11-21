@@ -6,8 +6,10 @@ import {
   ArrowUp,
   Bell,
   BellOff,
+  Check,
   CheckCircle2,
   Clock,
+  ImageDown,
   ShieldAlert,
   ShieldCheck,
   Trash2,
@@ -15,9 +17,16 @@ import {
 } from 'lucide-react';
 import type {
   NewsProtectionState,
+  SureSignalEntry,
   SureSignalScanStatus,
   SureSignalStatus,
 } from '../types/market.ts';
+import {
+  renderSureSignalJpg,
+  triggerJpgDownload,
+  type RenderedJpgReport,
+} from '../utils/exportReportJpg.ts';
+import { isGoldMarketWeekendClosed } from '../utils/marketHours.ts';
 import {
   enableAndTestPhoneAlerts,
   getNotificationPermissionState,
@@ -29,6 +38,8 @@ import {
   unsubscribeWebPush,
   type NotificationPermissionState,
 } from '../utils/phoneNotifications.ts';
+import { JpgPreviewModal } from './JpgPreviewModal.tsx';
+import { SureIconBadge } from './SureIconBadge.tsx';
 import { TradeLevelsScale } from './TradeLevelsScale.tsx';
 
 const EMPTY_CHECKS: SureSignalScanStatus['checks'] = [];
@@ -135,6 +146,10 @@ export const SureSignalsView = memo(function SureSignalsView({
   const [alertFeedback, setAlertFeedback] = useState<string | null>(null);
   const [testingAlert, setTestingAlert] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [previewJpg, setPreviewJpg] = useState<RenderedJpgReport | null>(null);
+  const [downloadedId, setDownloadedId] = useState<string | null>(null);
+  const [downloadNotice, setDownloadNotice] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   useEffect(() => {
     const unsubPref = subscribePhoneAlertsPrefChange(setAlertsEnabled);
@@ -143,6 +158,25 @@ export const SureSignalsView = memo(function SureSignalsView({
       unsubPref();
       unsubPerm();
     };
+  }, []);
+
+  const handleClosePreview = useCallback(() => setPreviewJpg(null), []);
+
+  const handleDownloadSignal = useCallback((signal: SureSignalEntry) => {
+    setDownloadError(null);
+    try {
+      const rendered = renderSureSignalJpg(signal);
+      triggerJpgDownload(rendered.blobUrl, rendered.filename);
+      setPreviewJpg(rendered);
+      setDownloadedId(signal.id);
+      setDownloadNotice(rendered.filename);
+      window.setTimeout(() => {
+        setDownloadedId((curr) => (curr === signal.id ? null : curr));
+        setDownloadNotice((curr) => (curr === rendered.filename ? null : curr));
+      }, 4000);
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : 'Unable to export SURE signal JPG');
+    }
   }, []);
 
   const handleTogglePhoneAlerts = useCallback(async () => {
@@ -196,6 +230,11 @@ export const SureSignalsView = memo(function SureSignalsView({
   const stats = sureStatus?.stats;
   const evalData = isNewsPaused ? undefined : sureStatus?.strategyEvaluation;
   const isFeedUnavailable = sureStatus?.marketState === 'UNAVAILABLE';
+  const isMarketClosed =
+    sureStatus?.monitoringMode !== 'REALTIME_SPOT_BBO' &&
+    (isGoldMarketWeekendClosed() ||
+      Boolean(sureStatus?.reason?.toLowerCase().includes('market closed')) ||
+      (isFeedUnavailable && sureStatus?.monitoringMode === 'DELAYED_POLL'));
 
   const formattedLastScanTime = useMemo(() => {
     if (!sureStatus?.lastScannedAt) return null;
@@ -263,13 +302,12 @@ export const SureSignalsView = memo(function SureSignalsView({
   return (
     <div className="space-y-4 pb-6">
       {/* Automatic Scanner Status Header — Zero Manual Scan Buttons */}
-      <section className="rounded-2xl border border-[#D4AF37]/30 bg-[#121318] p-4 space-y-3.5">
+      <section className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] p-4 space-y-3.5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center gap-0.5 rounded-lg bg-[#0C0D11] border border-white/10 px-2 py-1">
-                <ArrowUp className="w-3.5 h-3.5 text-emerald-400" />
-                <ArrowDown className="w-3.5 h-3.5 text-red-400" />
+            <div className="flex items-center gap-2.5">
+              <span className="inline-flex items-center justify-center rounded-xl bg-[#070709] border border-[#D4AF37]/35 px-1.5 py-1 shadow-[0_0_16px_-6px_rgba(212,175,55,0.28)] shrink-0">
+                <SureIconBadge size="header" />
               </span>
               <h1 className="text-lg sm:text-xl font-display font-bold text-zinc-100">
                 SURE Auto-Scanner
@@ -304,6 +342,8 @@ export const SureSignalsView = memo(function SureSignalsView({
                   ? effectiveNews?.safeFallbackActive
                     ? 'NEWS UNVERIFIED · PAUSED'
                     : 'HIGH IMPACT NEWS · PAUSED'
+                  : isMarketClosed
+                  ? 'MARKET CLOSED'
                   : isFeedUnavailable
                   ? 'DATA UNAVAILABLE'
                   : sureStatus?.tradeLocked
@@ -366,7 +406,7 @@ export const SureSignalsView = memo(function SureSignalsView({
         )}
 
         {/* Live Telemetry & Countdown Row */}
-        <div className="pt-2.5 border-t border-white/8 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono tabular-nums text-zinc-400">
+        <div className="pt-2.5 border-t border-[#D4AF37]/20 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono tabular-nums text-zinc-400">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span>
               Spot:{' '}
@@ -395,11 +435,17 @@ export const SureSignalsView = memo(function SureSignalsView({
             <span>·</span>
             <span>
               Monitoring:{' '}
-              <span className="text-zinc-200 font-semibold">
-                {sureStatus?.monitoringMode === 'REALTIME_SPOT_BBO'
-                  ? 'Live Spot BBO'
-                  : sureStatus?.monitoringMode ?? '—'}
-              </span>
+              {sureStatus?.monitoringMode === 'REALTIME_SPOT_BBO' ? (
+                <span className="text-emerald-400 font-semibold">Live Spot BBO</span>
+              ) : isMarketClosed ? (
+                <span className="text-red-400 font-semibold">MARKET CLOSED</span>
+              ) : sureStatus?.monitoringMode === 'DELAYED_POLL' ? (
+                <span className="text-amber-400 font-semibold">Delayed Poll</span>
+              ) : (
+                <span className="text-zinc-200 font-semibold">
+                  {sureStatus?.monitoringMode ?? '—'}
+                </span>
+              )}
             </span>
           </div>
           <div className="flex items-center gap-1.5 text-zinc-400">
@@ -413,6 +459,18 @@ export const SureSignalsView = memo(function SureSignalsView({
           </div>
         </div>
       </section>
+
+      {downloadNotice && (
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2 text-xs font-mono text-emerald-300 truncate">
+          SURE signal JPG downloaded: {downloadNotice}
+        </div>
+      )}
+
+      {downloadError && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3.5 py-2 text-xs text-red-300">
+          SURE signal download failed: {downloadError}
+        </div>
+      )}
 
       {/* Non-blocking Upcoming High-Impact News Pre-Warning */}
       {isNewsWarningOnly && effectiveNews && (
@@ -496,7 +554,7 @@ export const SureSignalsView = memo(function SureSignalsView({
           )}
         </section>
       ) : loading && !sureStatus ? (
-        <div className="h-44 rounded-2xl border border-white/10 bg-[#121318] animate-pulse" />
+        <div className="h-44 rounded-2xl border border-[#D4AF37]/30 bg-[#121318] animate-pulse" />
       ) : spotlight ? (
         <section
           className={`rounded-2xl border p-5 space-y-4 ${
@@ -563,32 +621,52 @@ export const SureSignalsView = memo(function SureSignalsView({
               <p className="text-xs text-zinc-200 max-w-xl leading-relaxed">{spotlight.summary}</p>
             </div>
 
-            <div className="text-left sm:text-right font-mono tabular-nums space-y-1">
-              <div className="text-[11px] text-zinc-300">Setup Quality Score</div>
-              <div
-                className={`text-2xl font-bold ${
-                  spotlight.direction === 'BUY' ? 'text-emerald-400' : 'text-red-400'
+            <div className="flex flex-col sm:items-end gap-2">
+              <button
+                type="button"
+                onClick={() => handleDownloadSignal(spotlight)}
+                aria-label="Download active SURE signal as JPG"
+                className={`min-h-[40px] px-3.5 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer ${
+                  downloadedId === spotlight.id
+                    ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
+                    : 'border-[#D4AF37]/45 bg-[#181A20] text-[#F5D061] hover:bg-[#D4AF37]/15'
                 }`}
               >
-                {spotlight.setupScore}/100
-              </div>
-              <div className="text-[11px] text-zinc-300">
-                R:R {spotlight.riskRewardRatio} · ADX {spotlight.adxValue.toFixed(1)}
-              </div>
-              <div className="text-[11px] text-zinc-400">
-                Created {formattedSpotlightCreatedAt}
-              </div>
-              {formattedSpotlightClosedAt && (
-                <div className="text-[11px] text-zinc-300">
-                  Completed {formattedSpotlightClosedAt}
+                {downloadedId === spotlight.id ? (
+                  <Check className="w-4 h-4" />
+                ) : (
+                  <ImageDown className="w-4 h-4" />
+                )}
+                <span>{downloadedId === spotlight.id ? 'Downloaded' : 'Download Signal'}</span>
+              </button>
+
+              <div className="text-left sm:text-right font-mono tabular-nums space-y-1">
+                <div className="text-[11px] text-zinc-300">Setup Quality Score</div>
+                <div
+                  className={`text-2xl font-bold ${
+                    spotlight.direction === 'BUY' ? 'text-emerald-400' : 'text-red-400'
+                  }`}
+                >
+                  {spotlight.setupScore}/100
                 </div>
-              )}
+                <div className="text-[11px] text-zinc-300">
+                  R:R {spotlight.riskRewardRatio} · ADX {spotlight.adxValue.toFixed(1)}
+                </div>
+                <div className="text-[11px] text-zinc-400">
+                  Created {formattedSpotlightCreatedAt}
+                </div>
+                {formattedSpotlightClosedAt && (
+                  <div className="text-[11px] text-zinc-300">
+                    Completed {formattedSpotlightClosedAt}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
           {/* 3-Card Layout: Entry Spot · Stop Loss (SL) · ONE Take Profit (TP) */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 font-mono tabular-nums">
-            <div className="rounded-xl bg-[#0D0E12] border border-white/10 p-3 space-y-1">
+            <div className="rounded-xl bg-[#0D0E12] border border-[#D4AF37]/25 p-3 space-y-1">
               <div className="text-[11px] text-zinc-400">Entry Price</div>
               <div className="text-base font-bold text-zinc-100">
                 ${spotlight.tradeLevels.referencePrice.toFixed(2)}
@@ -642,11 +720,21 @@ export const SureSignalsView = memo(function SureSignalsView({
           />
         </section>
       ) : (
-        <section className="rounded-2xl border border-white/10 bg-[#121318] p-5 space-y-2.5">
+        <section className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] p-5 space-y-2.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs font-mono font-bold uppercase tracking-wider text-[#F5D061] inline-flex items-center gap-2">
-              {isFeedUnavailable && <AlertTriangle className="w-4 h-4 text-red-400" />}
-              {isFeedUnavailable ? 'DATA UNAVAILABLE' : 'SCANNING FOR HIGH-QUALITY SETUP'}
+            <span
+              className={`text-xs font-mono font-bold uppercase tracking-wider inline-flex items-center gap-2 ${
+                isMarketClosed || isFeedUnavailable ? 'text-red-400' : 'text-[#F5D061]'
+              }`}
+            >
+              {(isFeedUnavailable || isMarketClosed) && (
+                <AlertTriangle className="w-4 h-4 text-red-400" />
+              )}
+              {isMarketClosed
+                ? 'MARKET CLOSED'
+                : isFeedUnavailable
+                ? 'DATA UNAVAILABLE'
+                : 'SCANNING FOR HIGH-QUALITY SETUP'}
             </span>
             <span className="text-xs font-mono text-zinc-400">
               {passedCount} / {checks.length || 8} strict SURE gates passed
@@ -660,7 +748,7 @@ export const SureSignalsView = memo(function SureSignalsView({
 
       {/* Real SURE Performance Statistics Card (Excluding ACTIVE & AMBIGUOUS from Win Rate) */}
       {stats && (
-        <section className="rounded-2xl border border-white/10 bg-[#121318] p-4 space-y-3">
+        <section className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] p-4 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-display font-semibold text-[#F5D061]">
               SURE Signal Performance Statistics
@@ -670,7 +758,7 @@ export const SureSignalsView = memo(function SureSignalsView({
             </span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 font-mono tabular-nums text-xs">
-            <div className="rounded-xl bg-[#0D0E12] border border-white/8 p-2.5">
+            <div className="rounded-xl bg-[#0D0E12] border border-[#D4AF37]/22 p-2.5">
               <div className="text-[10px] text-zinc-500">Completed</div>
               <div className="text-sm font-bold text-zinc-100">{stats.totalSignals}</div>
             </div>
@@ -686,19 +774,19 @@ export const SureSignalsView = memo(function SureSignalsView({
               <div className="text-[10px] text-amber-300">Ambiguous</div>
               <div className="text-sm font-bold text-amber-300">{stats.ambiguousOutcomes}</div>
             </div>
-            <div className="rounded-xl bg-[#0D0E12] border border-white/8 p-2.5">
+            <div className="rounded-xl bg-[#0D0E12] border border-[#D4AF37]/22 p-2.5">
               <div className="text-[10px] text-zinc-400">Win Rate</div>
               <div className="text-sm font-bold text-[#F5D061]">
                 {stats.winRatePct != null ? `${stats.winRatePct}%` : '—'}
               </div>
             </div>
-            <div className="rounded-xl bg-[#0D0E12] border border-white/8 p-2.5">
+            <div className="rounded-xl bg-[#0D0E12] border border-[#D4AF37]/22 p-2.5">
               <div className="text-[10px] text-zinc-400">Avg R:R</div>
               <div className="text-sm font-bold text-zinc-100">
                 {stats.avgRiskReward != null ? `1 : ${stats.avgRiskReward.toFixed(2)}` : '—'}
               </div>
             </div>
-            <div className="rounded-xl bg-[#0D0E12] border border-white/8 p-2.5">
+            <div className="rounded-xl bg-[#0D0E12] border border-[#D4AF37]/22 p-2.5">
               <div className="text-[10px] text-zinc-400">Avg Duration</div>
               <div className="text-sm font-bold text-zinc-100">
                 {formattedAvgDuration}
@@ -710,7 +798,7 @@ export const SureSignalsView = memo(function SureSignalsView({
 
       {/* Mandatory Strict SURE Gates */}
       {!isNewsPaused && checks.length > 0 && (
-        <section className="rounded-2xl border border-white/10 bg-[#121318] p-4 space-y-3">
+        <section className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] p-4 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <ShieldCheck className="w-4 h-4 text-[#D4AF37]" />
@@ -759,7 +847,7 @@ export const SureSignalsView = memo(function SureSignalsView({
 
       {/* Latest Live 11 Indicators Snapshot inside SURE */}
       {evalData && evalData.all11Indicators.length > 0 && (
-        <section className="rounded-2xl border border-white/10 bg-[#121318] p-4 space-y-2.5">
+        <section className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] p-4 space-y-2.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-display font-semibold text-[#F5D061]">
               Live 11-Indicator Scanner Telemetry
@@ -770,7 +858,7 @@ export const SureSignalsView = memo(function SureSignalsView({
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 text-[11px] font-mono">
             {evalData.all11Indicators.map((ind) => (
-              <div key={ind.id} className="rounded-xl bg-[#0D0E12] border border-white/6 p-2.5 space-y-0.5">
+              <div key={ind.id} className="rounded-xl bg-[#0D0E12] border border-[#D4AF37]/22 p-2.5 space-y-0.5">
                 <div className="flex items-center justify-between gap-1">
                   <span className="text-zinc-300 font-semibold truncate">{ind.name}</span>
                   <span
@@ -804,7 +892,7 @@ export const SureSignalsView = memo(function SureSignalsView({
         </div>
 
         {formattedHistoryItems.length === 0 ? (
-          <div className="rounded-2xl border border-white/10 bg-[#121318] p-6 text-center text-xs text-zinc-400">
+          <div className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] p-6 text-center text-xs text-zinc-400">
             No SURE signals recorded yet. Confirmed high-quality setups (≥ 90/100) and TP HIT / SL HIT / AMBIGUOUS outcomes appear here automatically.
           </div>
         ) : (
@@ -820,7 +908,7 @@ export const SureSignalsView = memo(function SureSignalsView({
               }) => (
                 <div
                   key={item.id}
-                  className="rounded-2xl border border-white/10 bg-[#121318] p-3.5 flex items-center justify-between gap-3"
+                  className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] p-3.5 flex items-center justify-between gap-3"
                 >
                   <div className="min-w-0 space-y-1">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -881,24 +969,51 @@ export const SureSignalsView = memo(function SureSignalsView({
                     </div>
                   </div>
 
-                  {isActive && (
+                  <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       type="button"
-                      onClick={() => void handleDeleteActiveReset(item.id)}
-                      disabled={deletingId === item.id}
-                      aria-label="Reset active sure signal"
-                      title="Clear active signal lock"
-                      className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl text-zinc-400 hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
+                      onClick={() => handleDownloadSignal(item)}
+                      aria-label="Download SURE signal as JPG"
+                      title="Download Signal JPG"
+                      className={`min-h-[40px] px-3 flex items-center justify-center gap-1.5 rounded-xl border text-xs font-semibold transition-colors cursor-pointer ${
+                        downloadedId === item.id
+                          ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
+                          : 'border-[#D4AF37]/35 bg-[#181A20] text-[#F5D061] hover:bg-[#D4AF37]/15'
+                      }`}
                     >
-                      <Trash2 className="w-4 h-4" />
+                      {downloadedId === item.id ? (
+                        <Check className="w-4 h-4" />
+                      ) : (
+                        <ImageDown className="w-4 h-4" />
+                      )}
+                      <span className="hidden sm:inline">
+                        {downloadedId === item.id ? 'Ready' : 'Download'}
+                      </span>
                     </button>
-                  )}
+
+                    {isActive && (
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteActiveReset(item.id)}
+                        disabled={deletingId === item.id}
+                        aria-label="Reset active sure signal"
+                        title="Clear active signal lock"
+                        className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl text-zinc-400 hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               )
             )}
           </div>
         )}
       </section>
+
+      {previewJpg && (
+        <JpgPreviewModal rendered={previewJpg} onClose={handleClosePreview} />
+      )}
     </div>
   );
 });

@@ -126,7 +126,7 @@ export const TradeLevelsScale = memo(function TradeLevelsScale({
   } = scaleMetrics;
 
   return (
-    <div className="rounded-xl bg-[#0D0E12] border border-white/8 p-3.5 space-y-3">
+    <div className="rounded-xl bg-[#0D0E12] border border-[#D4AF37]/25 p-3.5 space-y-3">
       {/* Scale Header */}
       <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono">
         <span className="text-zinc-300 font-semibold">
@@ -158,7 +158,7 @@ export const TradeLevelsScale = memo(function TradeLevelsScale({
         </div>
 
         {/* Track */}
-        <div className="relative h-4 w-full rounded-full bg-[#181A20] border border-white/10 overflow-hidden">
+        <div className="relative h-4 w-full rounded-full bg-[#181A20] border border-[#D4AF37]/25 overflow-hidden">
           {/* Risk Segment (SL <-> Spot) */}
           <div
             className="absolute top-0 bottom-0 bg-red-500/45"
@@ -207,7 +207,7 @@ export const TradeLevelsScale = memo(function TradeLevelsScale({
           return (
             <div
               key={m.key}
-              className="flex items-center justify-between gap-2 rounded-lg bg-[#121318] border border-white/6 px-2.5 py-1.5 text-[11px]"
+              className="flex items-center justify-between gap-2 rounded-lg bg-[#121318] border border-[#D4AF37]/22 px-2.5 py-1.5 text-[11px]"
             >
               <span className="inline-flex items-center gap-1.5">
                 <span className={`w-2 h-2 rounded-full ${m.dotClass}`} />

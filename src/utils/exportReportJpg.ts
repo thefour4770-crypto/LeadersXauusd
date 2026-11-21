@@ -1,4 +1,4 @@
-import type { AnalysisReport, SignalClassification } from '../types/market.ts';
+import type { AnalysisReport, SignalClassification, SureSignalEntry } from '../types/market.ts';
 import { getReportSignalConfidence } from './signalConfidence.ts';
 
 const LOGICAL_WIDTH = 1080;
@@ -599,4 +599,346 @@ export async function uploadJpgForAttachmentUrl(
     return null;
   }
 }
+
+function buildSureFilename(signal: SureSignalEntry): string {
+  const dt = new Date(signal.createdAt);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const stamp = Number.isNaN(dt.getTime())
+    ? 'signal'
+    : `${dt.getFullYear()}${pad(dt.getMonth() + 1)}${pad(dt.getDate())}-${pad(dt.getHours())}${pad(dt.getMinutes())}`;
+  const shortId = signal.id.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 8) || 'sure';
+  return `LEADERS-XAUUSD-SURE-${signal.direction}-${stamp}-${shortId}.jpg`;
+}
+
+function formatDurationMs(durationMs: number | undefined | null): string {
+  if (durationMs == null || !Number.isFinite(durationMs) || durationMs < 0) return '—';
+  const totalSec = Math.floor(durationMs / 1000);
+  const hours = Math.floor(totalSec / 3600);
+  const mins = Math.floor((totalSec % 3600) / 60);
+  const secs = totalSec % 60;
+  if (hours > 0) return `${hours}h ${mins}m ${secs}s`;
+  if (mins > 0) return `${mins}m ${secs}s`;
+  return `${secs}s`;
+}
+
+function getSureStatusStyle(status: SureSignalEntry['status']) {
+  if (status === 'TP_HIT') {
+    return { label: 'TP HIT', color: PALETTE.buy, bg: PALETTE.buyBg, border: PALETTE.buyBorder };
+  }
+  if (status === 'SL_HIT') {
+    return { label: 'SL HIT', color: PALETTE.sell, bg: PALETTE.sellBg, border: PALETTE.sellBorder };
+  }
+  if (status === 'AMBIGUOUS') {
+    return { label: 'AMBIGUOUS', color: PALETTE.hold, bg: PALETTE.holdBg, border: PALETTE.holdBorder };
+  }
+  return { label: 'ACTIVE TRADE', color: PALETTE.goldBright, bg: PALETTE.holdBg, border: PALETTE.goldBorder };
+}
+
+function renderSureSignalToCanvas(
+  ctx: CanvasRenderingContext2D,
+  signal: SureSignalEntry,
+  dryRun: boolean
+): number {
+  let y = TOP_PADDING;
+
+  if (!dryRun) {
+    ctx.textBaseline = 'top';
+  }
+
+  const statusStyle = getSureStatusStyle(signal.status);
+  const biasColors = getBiasColors(signal.direction);
+
+  // 1. Header Banner
+  const bannerH = 96;
+  if (!dryRun) {
+    drawRoundedRect(ctx, PADDING_X, y, CONTENT_WIDTH, bannerH, 16, PALETTE.surface, PALETTE.goldBorder, 1.5);
+
+    ctx.font = '700 26px system-ui, -apple-system, Segoe UI, sans-serif';
+    ctx.fillStyle = PALETTE.goldBright;
+    ctx.fillText('LEADERS XAUUSD · SURE SIGNAL', PADDING_X + 24, y + 18);
+
+    ctx.font = '500 14px system-ui, -apple-system, Segoe UI, sans-serif';
+    ctx.fillStyle = PALETTE.textSecondary;
+    ctx.fillText('Strict Multi-Timeframe Auto-Scanner Verified Setup', PADDING_X + 24, y + 50);
+
+    ctx.font = '400 12px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.fillStyle = PALETTE.textMuted;
+    ctx.fillText(
+      `Signal ID: ${signal.id.slice(0, 12)}  ·  Created: ${formatDateTime(signal.createdAt)}`,
+      PADDING_X + 24,
+      y + 71
+    );
+
+    ctx.textAlign = 'right';
+    ctx.font = '700 14px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.fillStyle = statusStyle.color;
+    ctx.fillText(`STATUS: ${statusStyle.label}`, PADDING_X + CONTENT_WIDTH - 24, y + 22);
+
+    ctx.font = '400 12px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.fillStyle = PALETTE.textMuted;
+    ctx.fillText(`${signal.timeframes.join(' · ')}`, PADDING_X + CONTENT_WIDTH - 24, y + 46);
+    if (signal.closedAt) {
+      ctx.fillText(`Closed: ${formatDateTime(signal.closedAt)}`, PADDING_X + CONTENT_WIDTH - 24, y + 68);
+    } else {
+      ctx.fillText(`Score Category: ${signal.scoreCategory}`, PADDING_X + CONTENT_WIDTH - 24, y + 68);
+    }
+    ctx.textAlign = 'left';
+  }
+  y += bannerH + 18;
+
+  // 2. Primary SURE Signal Card
+  const classCardH = signal.status !== 'ACTIVE' && signal.closePrice != null ? 148 : 128;
+  if (!dryRun) {
+    drawRoundedRect(ctx, PADDING_X, y, CONTENT_WIDTH, classCardH, 16, biasColors.bg, biasColors.border, 1.5);
+
+    ctx.font = '600 12px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.fillStyle = PALETTE.textMuted;
+    ctx.fillText(`XAU/USD SURE AUTO-SCANNER · ${statusStyle.label}`, PADDING_X + 24, y + 18);
+
+    ctx.font = '800 42px system-ui, -apple-system, Segoe UI, sans-serif';
+    ctx.fillStyle = biasColors.text;
+    ctx.fillText(`SURE ${signal.direction}`, PADDING_X + 24, y + 40);
+
+    ctx.font = '500 13px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.fillStyle = PALETTE.textSecondary;
+    ctx.fillText(
+      `Setup Score: ${signal.setupScore}/100 (${signal.scoreCategory})  ·  ADX: ${signal.adxValue.toFixed(1)}  ·  R:R: ${signal.riskRewardRatio}`,
+      PADDING_X + 24,
+      y + 96
+    );
+
+    if (signal.status !== 'ACTIVE' && signal.closePrice != null) {
+      const pnl = signal.pnlPoints ?? 0;
+      ctx.font = '700 13px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.fillStyle = statusStyle.color;
+      ctx.fillText(
+        `Exit: $${signal.closePrice.toFixed(2)} (${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} pts)  ·  Duration: ${formatDurationMs(signal.durationMs)}`,
+        PADDING_X + 24,
+        y + 118
+      );
+    }
+
+    ctx.textAlign = 'right';
+    ctx.font = '600 12px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.fillStyle = PALETTE.textMuted;
+    ctx.fillText('ENTRY SPOT PRICE', PADDING_X + CONTENT_WIDTH - 24, y + 18);
+
+    ctx.font = '700 32px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.fillStyle = PALETTE.textPrimary;
+    ctx.fillText(`$${signal.tradeLevels.referencePrice.toFixed(2)}`, PADDING_X + CONTENT_WIDTH - 24, y + 42);
+
+    ctx.font = '400 12px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.fillStyle = PALETTE.textSecondary;
+    ctx.fillText(
+      `${signal.tradeLevels.referenceTimeframe} ATR(14): $${signal.tradeLevels.atrValue.toFixed(2)}`,
+      PADDING_X + CONTENT_WIDTH - 24,
+      y + 84
+    );
+    ctx.textAlign = 'left';
+  }
+  y += classCardH + 18;
+
+  // 3. Trade Levels (Entry, SL, TP + Summary)
+  const lv = signal.tradeLevels;
+  const bodyFont = '400 13px system-ui, -apple-system, Segoe UI, sans-serif';
+  const summaryLines = wrapText(ctx, signal.summary, CONTENT_WIDTH - 48, bodyFont);
+  const methLines = wrapText(ctx, lv.methodology, CONTENT_WIDTH - 48, bodyFont);
+  const levelsCardH = 166 + (summaryLines.length + methLines.length) * 19 + 12;
+
+  if (!dryRun) {
+    drawRoundedRect(ctx, PADDING_X, y, CONTENT_WIDTH, levelsCardH, 16, PALETTE.surface, PALETTE.goldBorder, 1.2);
+
+    ctx.font = '700 16px system-ui, -apple-system, Segoe UI, sans-serif';
+    ctx.fillStyle = PALETTE.goldBright;
+    ctx.fillText(`SURE Trade Levels (SURE ${signal.direction})`, PADDING_X + 24, y + 18);
+
+    const gap = 14;
+    const boxW = (CONTENT_WIDTH - 48 - gap * 2) / 3;
+    const boxY = y + 50;
+    const boxH = 82;
+    const items = [
+      {
+        label: 'Entry Price',
+        val: `$${lv.referencePrice.toFixed(2)}`,
+        sub: `Spot at trigger`,
+        color: PALETTE.textPrimary,
+        border: PALETTE.border,
+      },
+      {
+        label: 'Stop Loss (SL)',
+        val: `$${lv.stopLoss.toFixed(2)}`,
+        sub: `-$${lv.riskPoints.toFixed(2)} risk`,
+        color: PALETTE.sell,
+        border: PALETTE.sellBorder,
+      },
+      {
+        label: 'Take Profit (TP)',
+        val: `$${lv.takeProfit1.toFixed(2)}`,
+        sub: `R:R ${lv.rewardRiskRatio1}`,
+        color: PALETTE.buy,
+        border: PALETTE.buyBorder,
+      },
+    ];
+
+    items.forEach((item, idx) => {
+      const bx = PADDING_X + 24 + idx * (boxW + gap);
+      drawRoundedRect(ctx, bx, boxY, boxW, boxH, 12, PALETTE.surfaceInner, item.border, 1);
+
+      ctx.font = '600 11px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.fillStyle = idx === 0 ? PALETTE.textMuted : item.color;
+      ctx.fillText(item.label, bx + 14, boxY + 12);
+
+      ctx.font = '700 20px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.fillStyle = item.color;
+      ctx.fillText(item.val, bx + 14, boxY + 33);
+
+      ctx.font = '400 11px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.fillStyle = PALETTE.textDim;
+      ctx.fillText(item.sub, bx + 14, boxY + 60);
+    });
+
+    let ty = boxY + boxH + 16;
+    ctx.font = bodyFont;
+    ctx.fillStyle = PALETTE.textSecondary;
+    for (const line of summaryLines) {
+      ctx.fillText(line, PADDING_X + 24, ty);
+      ty += 19;
+    }
+    ty += 8;
+    ctx.fillStyle = PALETTE.textMuted;
+    for (const line of methLines) {
+      ctx.fillText(line, PADDING_X + 24, ty);
+      ty += 19;
+    }
+  }
+  y += levelsCardH + 18;
+
+  // 4. Mandatory SURE Filter Gates
+  if (signal.checks && signal.checks.length > 0) {
+    const checks = signal.checks;
+    const passed = checks.filter((c) => c.passed).length;
+    const gateGap = 12;
+    const gateW = (CONTENT_WIDTH - 48 - gateGap) / 2;
+    const gateFont = '400 12px system-ui, -apple-system, Segoe UI, sans-serif';
+
+    const gateLayouts = checks.map((gate) => {
+      const detailLines = wrapText(ctx, gate.detail, gateW - 28, gateFont);
+      return {
+        gate,
+        detailLines,
+        height: 36 + detailLines.length * 17 + 12,
+      };
+    });
+
+    const rowHeights: number[] = [];
+    for (let i = 0; i < gateLayouts.length; i += 2) {
+      rowHeights.push(Math.max(gateLayouts[i].height, gateLayouts[i + 1]?.height ?? 0));
+    }
+    const totalRowsH = rowHeights.reduce((a, b) => a + b, 0) + Math.max(0, rowHeights.length - 1) * gateGap;
+    const gatesCardH = 56 + totalRowsH + 20;
+
+    if (!dryRun) {
+      drawRoundedRect(ctx, PADDING_X, y, CONTENT_WIDTH, gatesCardH, 16, PALETTE.surface, PALETTE.border, 1);
+
+      ctx.font = '700 16px system-ui, -apple-system, Segoe UI, sans-serif';
+      ctx.fillStyle = PALETTE.goldBright;
+      ctx.fillText('Mandatory SURE Filter Gates', PADDING_X + 24, y + 18);
+
+      ctx.textAlign = 'right';
+      ctx.font = '500 12px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.fillStyle = PALETTE.textMuted;
+      ctx.fillText(`${passed} / ${checks.length} gates passed`, PADDING_X + CONTENT_WIDTH - 24, y + 20);
+      ctx.textAlign = 'left';
+
+      let gy = y + 52;
+      for (let r = 0; r < rowHeights.length; r++) {
+        const rh = rowHeights[r];
+        for (let c = 0; c < 2; c++) {
+          const item = gateLayouts[r * 2 + c];
+          if (!item) continue;
+          const gx = PADDING_X + 24 + c * (gateW + gateGap);
+          const gColor = item.gate.passed ? PALETTE.buy : PALETTE.hold;
+          const gBg = item.gate.passed ? PALETTE.buyBg : PALETTE.holdBg;
+          const gBorder = item.gate.passed ? PALETTE.buyBorder : PALETTE.holdBorder;
+
+          drawRoundedRect(ctx, gx, gy, gateW, rh, 12, gBg, gBorder, 1);
+
+          ctx.font = '700 13px system-ui, -apple-system, Segoe UI, sans-serif';
+          ctx.fillStyle = PALETTE.textPrimary;
+          ctx.fillText(item.gate.label, gx + 14, gy + 12);
+
+          const labelW = ctx.measureText(item.gate.label).width;
+          ctx.font = '700 11px ui-monospace, SFMono-Regular, Menlo, monospace';
+          ctx.fillStyle = gColor;
+          ctx.fillText(` · ${item.gate.passed ? 'PASS' : 'WAIT'}`, gx + 14 + labelW + 2, gy + 14);
+
+          ctx.font = gateFont;
+          ctx.fillStyle = PALETTE.textMuted;
+          let ly = gy + 34;
+          for (const line of item.detailLines) {
+            ctx.fillText(line, gx + 14, ly);
+            ly += 17;
+          }
+        }
+        gy += rh + gateGap;
+      }
+    }
+    y += gatesCardH + 18;
+  }
+
+  // 5. Footer
+  if (!dryRun) {
+    ctx.font = '400 11px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.fillStyle = PALETTE.textDim;
+    ctx.fillText(
+      'LEADERS XAUUSD · SURE Auto-Scanner Snapshot (Educational Technical Signal — Not Financial Advice)',
+      PADDING_X,
+      y + 6
+    );
+  }
+  y += 28 + BOTTOM_PADDING;
+
+  return y;
+}
+
+export function renderSureSignalJpg(signal: SureSignalEntry): RenderedJpgReport {
+  if (typeof document === 'undefined') {
+    throw new Error('Image export is only supported in the browser');
+  }
+
+  const measureCanvas = document.createElement('canvas');
+  measureCanvas.width = LOGICAL_WIDTH;
+  measureCanvas.height = 100;
+  const measureCtx = measureCanvas.getContext('2d');
+  if (!measureCtx) {
+    throw new Error('Unable to initialize canvas rendering context');
+  }
+
+  const totalLogicalHeight = renderSureSignalToCanvas(measureCtx, signal, true);
+  const scale = Math.min(2, Math.max(1, MAX_CANVAS_PX / totalLogicalHeight));
+
+  const outputCanvas = document.createElement('canvas');
+  outputCanvas.width = Math.round(LOGICAL_WIDTH * scale);
+  outputCanvas.height = Math.round(totalLogicalHeight * scale);
+  const ctx = outputCanvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('Unable to allocate output canvas');
+  }
+
+  ctx.fillStyle = PALETTE.bg;
+  ctx.fillRect(0, 0, outputCanvas.width, outputCanvas.height);
+
+  ctx.save();
+  ctx.scale(scale, scale);
+  renderSureSignalToCanvas(ctx, signal, false);
+  ctx.restore();
+
+  const filename = buildSureFilename(signal);
+  const dataUrl = outputCanvas.toDataURL('image/jpeg', 0.94);
+  const blob = dataUrlToBlob(dataUrl);
+  const blobUrl = URL.createObjectURL(blob);
+
+  return { filename, dataUrl, blob, blobUrl };
+}
+
 

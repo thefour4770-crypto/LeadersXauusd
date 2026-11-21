@@ -706,11 +706,11 @@ export const XauUsdChart = memo(function XauUsdChart({
   return (
     <div
       className={`relative flex flex-col bg-[#0B0C10] overflow-hidden ${
-        fullHeight ? 'flex-1 h-full border-0 rounded-none' : 'rounded-2xl border border-white/10'
+        fullHeight ? 'flex-1 h-full border-0 rounded-none' : 'rounded-2xl border border-[#D4AF37]/35 shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)]'
       }`}
     >
       {/* Compact OHLC Readout & Chart Controls */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-white/8 bg-[#101217]">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-[#D4AF37]/20 bg-[#101217]">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-mono tabular-nums text-zinc-400">
           <span className="font-semibold text-[#F5D061]">{timeframe}</span>
           {activeBar && (
@@ -782,7 +782,7 @@ export const XauUsdChart = memo(function XauUsdChart({
 
       {/* Overlay Legend (Unboxed Metadata Text) */}
       {overlays.length > 0 && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5 bg-[#0B0C10] border-b border-white/5 text-[11px] font-mono text-zinc-400">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5 bg-[#0B0C10] border-b border-[#D4AF37]/15 text-[11px] font-mono text-zinc-400">
           {legendOverlays.map((ov) => (
             <span key={ov.id} className="inline-flex items-center gap-1.5 whitespace-nowrap">
               <span className="w-2.5 h-0.5 inline-block" style={{ backgroundColor: ov.color }} />

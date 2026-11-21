@@ -146,7 +146,7 @@ export function AnalysisResultView({
         <button
           type="button"
           onClick={onBack}
-          className="min-h-[44px] px-3 rounded-xl bg-[#121318] border border-white/10 text-zinc-200 text-xs font-semibold inline-flex items-center gap-2 hover:border-[#D4AF37]/50 hover:text-[#F5D061] transition-colors"
+          className="min-h-[44px] px-3 rounded-xl bg-[#121318] border border-[#D4AF37]/30 text-zinc-200 text-xs font-semibold inline-flex items-center gap-2 hover:border-[#D4AF37]/60 hover:text-[#F5D061] transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>{backLabel}</span>
@@ -194,7 +194,7 @@ export function AnalysisResultView({
                 {displayAction}
               </h1>
               {strat && (
-                <span className="px-2.5 py-1 rounded-lg border border-white/15 bg-[#0D0E12]/90 text-xs font-mono font-bold text-[#F5D061]">
+                <span className="px-2.5 py-1 rounded-lg border border-[#D4AF37]/30 bg-[#0D0E12]/90 text-xs font-mono font-bold text-[#F5D061]">
                   {strat.totalScore}/100 · {strat.scoreCategory}
                 </span>
               )}
@@ -223,7 +223,7 @@ export function AnalysisResultView({
         </div>
 
         {/* Signal Confidence & Multi-Timeframe Indicator Agreement Meter */}
-        <div className="rounded-xl border border-white/10 bg-[#0D0E12]/90 p-3.5 space-y-2.5">
+        <div className="rounded-xl border border-[#D4AF37]/25 bg-[#0D0E12]/90 p-3.5 space-y-2.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <span className="text-xs font-semibold text-zinc-200">Signal Confidence</span>
@@ -287,7 +287,7 @@ export function AnalysisResultView({
           <p className="text-xs text-zinc-300 leading-relaxed">{confidence.summary}</p>
         </div>
 
-        <div className="pt-3 border-t border-white/10 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-mono text-zinc-300">
+        <div className="pt-3 border-t border-[#D4AF37]/20 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-mono text-zinc-300">
           <span>Data Timestamp: {formattedMarketTs}</span>
           <span>·</span>
           <span>Freshness: {report.freshness}</span>
@@ -299,7 +299,7 @@ export function AnalysisResultView({
       </section>
 
       {/* Educational Notice */}
-      <div className="rounded-2xl border border-white/10 bg-[#121318] px-4 py-3 flex items-start gap-3">
+      <div className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] px-4 py-3 flex items-start gap-3">
         <Info className="w-4 h-4 text-[#D4AF37] shrink-0 mt-0.5" />
         <p className="text-xs text-zinc-300 leading-relaxed">
           BUY, SELL, and HOLD are educational market-condition classifications computed strictly from historical price and indicator math. Calculated SL/TP reference levels are derived from ATR volatility and swing structure, not personalized financial advice.
@@ -308,7 +308,7 @@ export function AnalysisResultView({
 
       {/* Calculated SL & Single TP Reference Levels (ONE Take Profit Only) */}
       {report.tradeLevels ? (
-        <section className="rounded-2xl border border-[#D4AF37]/30 bg-[#121318] p-4 space-y-3">
+        <section className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] p-4 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-display font-semibold text-[#F5D061]">
               Entry, Stop Loss & Single Take Profit ({displayAction})
@@ -319,7 +319,7 @@ export function AnalysisResultView({
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 font-mono tabular-nums">
-            <div className="rounded-xl bg-[#0D0E12] border border-white/8 p-3 space-y-1">
+            <div className="rounded-xl bg-[#0D0E12] border border-[#D4AF37]/25 p-3 space-y-1">
               <div className="text-[11px] text-zinc-400">Entry Price</div>
               <div className="text-base font-bold text-zinc-100">
                 ${report.tradeLevels.referencePrice.toFixed(2)}
@@ -355,7 +355,7 @@ export function AnalysisResultView({
           </p>
         </section>
       ) : (
-        <section className="rounded-2xl border border-white/10 bg-[#121318] p-4 space-y-1.5">
+        <section className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] p-4 space-y-1.5">
           <h2 className="text-sm font-display font-semibold text-[#F5D061]">
             Entry, SL & Single TP Withheld ({displayAction})
           </h2>
@@ -367,7 +367,7 @@ export function AnalysisResultView({
 
       {/* 100-Point Setup Score + 1H / 15M / 5M / 1M Strict Multi-Timeframe Pipeline */}
       {strat && (
-        <section className="rounded-2xl border border-[#D4AF37]/25 bg-[#121318] p-4 space-y-4">
+        <section className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] p-4 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h2 className="text-sm font-display font-semibold text-[#F5D061]">
@@ -384,7 +384,7 @@ export function AnalysisResultView({
 
           {/* 4-Timeframe Role Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
-            <div className="rounded-xl bg-[#0D0E12] border border-white/8 p-3 space-y-1">
+            <div className="rounded-xl bg-[#0D0E12] border border-[#D4AF37]/22 p-3 space-y-1">
               <div className="flex items-center justify-between font-mono font-semibold">
                 <span className="text-zinc-200">1H · Major Market Trend</span>
                 <span className={strat.trend1H.bias === 'BULLISH' ? 'text-emerald-400' : strat.trend1H.bias === 'BEARISH' ? 'text-red-400' : 'text-[#F5D061]'}>
@@ -397,7 +397,7 @@ export function AnalysisResultView({
               </div>
             </div>
 
-            <div className="rounded-xl bg-[#0D0E12] border border-white/8 p-3 space-y-1">
+            <div className="rounded-xl bg-[#0D0E12] border border-[#D4AF37]/22 p-3 space-y-1">
               <div className="flex items-center justify-between font-mono font-semibold">
                 <span className="text-zinc-200">15M · Market Structure</span>
                 <span className={strat.structure15M.agreesWith1H ? 'text-emerald-400' : 'text-amber-400'}>
@@ -410,7 +410,7 @@ export function AnalysisResultView({
               </div>
             </div>
 
-            <div className="rounded-xl bg-[#0D0E12] border border-white/8 p-3 space-y-1">
+            <div className="rounded-xl bg-[#0D0E12] border border-[#D4AF37]/22 p-3 space-y-1">
               <div className="flex items-center justify-between font-mono font-semibold">
                 <span className="text-zinc-200">5M · Entry Setup</span>
                 <span className={strat.setup5M.setupComplete ? 'text-emerald-400' : 'text-amber-400'}>
@@ -423,7 +423,7 @@ export function AnalysisResultView({
               </div>
             </div>
 
-            <div className="rounded-xl bg-[#0D0E12] border border-white/8 p-3 space-y-1">
+            <div className="rounded-xl bg-[#0D0E12] border border-[#D4AF37]/22 p-3 space-y-1">
               <div className="flex items-center justify-between font-mono font-semibold">
                 <span className="text-zinc-200">1M · Final Closed Confirmation</span>
                 <span className={strat.confirmation1M.confirmed ? 'text-emerald-400' : 'text-amber-400'}>
@@ -440,7 +440,7 @@ export function AnalysisResultView({
           {/* 7 Score Breakdown Bars */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
             {strat.scoreBreakdown.map((item) => (
-              <div key={item.category} className="rounded-xl bg-[#0D0E12] border border-white/6 p-2.5 space-y-1">
+              <div key={item.category} className="rounded-xl bg-[#0D0E12] border border-[#D4AF37]/22 p-2.5 space-y-1">
                 <div className="flex items-center justify-between text-[11px] font-mono">
                   <span className="text-zinc-300 truncate">{item.category}</span>
                   <span className={item.passed ? 'text-emerald-400 font-bold' : 'text-zinc-300 font-bold'}>
@@ -465,7 +465,7 @@ export function AnalysisResultView({
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 text-[11px] font-mono">
                 {strat.all11Indicators.map((ind) => (
-                  <div key={ind.id} className="rounded-xl bg-[#0D0E12] border border-white/6 p-2.5 space-y-0.5">
+                  <div key={ind.id} className="rounded-xl bg-[#0D0E12] border border-[#D4AF37]/22 p-2.5 space-y-0.5">
                     <div className="flex items-center justify-between gap-1">
                       <span className="text-zinc-300 font-semibold truncate">{ind.name}</span>
                       <span
@@ -491,7 +491,7 @@ export function AnalysisResultView({
 
       {/* Anti-Fake-Signal Filter Gates */}
       {report.signalQualityChecks && report.signalQualityChecks.length > 0 && (
-        <section className="rounded-2xl border border-white/10 bg-[#121318] p-4 space-y-3">
+        <section className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] p-4 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <ShieldCheck className="w-4 h-4 text-[#D4AF37]" />
@@ -541,18 +541,18 @@ export function AnalysisResultView({
       {/* Combined Summary Grid (2-col on desktop) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Methodology & Short vs Long Horizon */}
-        <section className="rounded-2xl border border-white/10 bg-[#121318] p-4 space-y-3.5">
+        <section className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] p-4 space-y-3.5">
           <h2 className="text-sm font-display font-semibold text-[#F5D061]">
             Combined Multi-Timeframe Synthesis
           </h2>
           <p className="text-xs text-zinc-300 leading-relaxed">{report.combinedMethodology}</p>
 
-          <div className="pt-2 border-t border-white/8 space-y-1">
+          <div className="pt-2 border-t border-[#D4AF37]/20 space-y-1">
             <h3 className="text-xs font-semibold text-zinc-200">Short-Term vs Long-Term Comparison</h3>
             <p className="text-xs text-zinc-300 leading-relaxed">{report.shortVsLongComparison}</p>
           </div>
 
-          <div className="pt-2 border-t border-white/8 space-y-1">
+          <div className="pt-2 border-t border-[#D4AF37]/20 space-y-1">
             <h3 className="text-xs font-semibold text-zinc-200">Data Sources</h3>
             <p className="text-[11px] font-mono text-zinc-400">
               Spot: {report.spotSource} · Candles: {report.candleSource}
@@ -561,7 +561,7 @@ export function AnalysisResultView({
         </section>
 
         {/* Reasons, Agreements, Conflicts */}
-        <section className="rounded-2xl border border-white/10 bg-[#121318] p-4 space-y-3.5">
+        <section className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] p-4 space-y-3.5">
           <h2 className="text-sm font-display font-semibold text-[#F5D061]">
             Reasons, Agreements & Disagreements
           </h2>
@@ -578,7 +578,7 @@ export function AnalysisResultView({
           </div>
 
           {report.agreements.length > 0 && (
-            <div className="pt-2 border-t border-white/8 space-y-1.5">
+            <div className="pt-2 border-t border-[#D4AF37]/20 space-y-1.5">
               <h3 className="text-xs font-semibold text-emerald-400">Indicator Agreements</h3>
               <ul className="space-y-1 text-xs text-zinc-300">
                 {report.agreements.map((a, i) => (
@@ -591,7 +591,7 @@ export function AnalysisResultView({
           )}
 
           {report.conflicts.length > 0 && (
-            <div className="pt-2 border-t border-white/8 space-y-1.5">
+            <div className="pt-2 border-t border-[#D4AF37]/20 space-y-1.5">
               <h3 className="text-xs font-semibold text-amber-400">Conflicting Signals</h3>
               <ul className="space-y-1 text-xs text-zinc-300">
                 {report.conflicts.map((c, i) => (
@@ -607,12 +607,12 @@ export function AnalysisResultView({
 
       {/* Support & Resistance + Uncertainty */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <section className="rounded-2xl border border-white/10 bg-[#121318] p-4 space-y-3">
+        <section className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] p-4 space-y-3">
           <h2 className="text-sm font-display font-semibold text-[#F5D061]">
             Calculated Support & Resistance Levels
           </h2>
           <div className="grid grid-cols-2 gap-3 font-mono tabular-nums">
-            <div className="rounded-xl bg-[#0D0E12] border border-white/8 p-3 space-y-1.5">
+            <div className="rounded-xl bg-[#0D0E12] border border-[#D4AF37]/22 p-3 space-y-1.5">
               <div className="text-[11px] text-emerald-400 font-semibold">Calculated Support</div>
               {report.supportLevels.length > 0 ? (
                 report.supportLevels.map((lvl) => (
@@ -624,7 +624,7 @@ export function AnalysisResultView({
                 <div className="text-xs text-zinc-500">None detected in lookback</div>
               )}
             </div>
-            <div className="rounded-xl bg-[#0D0E12] border border-white/8 p-3 space-y-1.5">
+            <div className="rounded-xl bg-[#0D0E12] border border-[#D4AF37]/22 p-3 space-y-1.5">
               <div className="text-[11px] text-red-400 font-semibold">Calculated Resistance</div>
               {report.resistanceLevels.length > 0 ? (
                 report.resistanceLevels.map((lvl) => (
@@ -642,7 +642,7 @@ export function AnalysisResultView({
           </p>
         </section>
 
-        <section className="rounded-2xl border border-white/10 bg-[#121318] p-4 space-y-2.5">
+        <section className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] p-4 space-y-2.5">
           <h2 className="text-sm font-display font-semibold text-[#F5D061]">
             Uncertainty & Risk Context
           </h2>
@@ -677,12 +677,12 @@ export function AnalysisResultView({
             return (
               <div
                 key={tf.timeframe}
-                className="rounded-2xl border border-white/10 bg-[#121318] overflow-hidden"
+                className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] overflow-hidden"
               >
                 <button
                   type="button"
                   onClick={() => setExpandedTf(isOpen ? null : tf.timeframe)}
-                  className="w-full min-h-[56px] px-4 py-3 flex items-center justify-between gap-3 text-left hover:bg-white/5 transition-colors"
+                  className="w-full min-h-[56px] px-4 py-3 flex items-center justify-between gap-3 text-left hover:bg-[#D4AF37]/[0.04] transition-colors"
                 >
                   <div className="space-y-0.5 min-w-0">
                     <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
@@ -706,23 +706,23 @@ export function AnalysisResultView({
                 </button>
 
                 {isOpen && (
-                  <div className="px-4 pb-4 pt-2 border-t border-white/8 space-y-3">
+                  <div className="px-4 pb-4 pt-2 border-t border-[#D4AF37]/20 space-y-3">
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono tabular-nums">
-                      <div className="rounded-xl bg-[#0C0D11] p-2.5 border border-white/5">
+                      <div className="rounded-xl bg-[#0C0D11] p-2.5 border border-[#D4AF37]/22">
                         <div className="text-[10px] text-zinc-500">Latest Close</div>
                         <div className="text-zinc-100 font-semibold">${tf.latestClose.toFixed(2)}</div>
                       </div>
-                      <div className="rounded-xl bg-[#0C0D11] p-2.5 border border-white/5">
+                      <div className="rounded-xl bg-[#0C0D11] p-2.5 border border-[#D4AF37]/22">
                         <div className="text-[10px] text-zinc-500">Trend / Momentum</div>
                         <div className="text-zinc-100 font-semibold">
                           {tf.trendScore.toFixed(2)} / {tf.momentumScore.toFixed(2)}
                         </div>
                       </div>
-                      <div className="rounded-xl bg-[#0C0D11] p-2.5 border border-white/5">
+                      <div className="rounded-xl bg-[#0C0D11] p-2.5 border border-[#D4AF37]/22">
                         <div className="text-[10px] text-zinc-500">Volatility</div>
                         <div className="text-zinc-100 truncate">{tf.volatilityState}</div>
                       </div>
-                      <div className="rounded-xl bg-[#0C0D11] p-2.5 border border-white/5">
+                      <div className="rounded-xl bg-[#0C0D11] p-2.5 border border-[#D4AF37]/22">
                         <div className="text-[10px] text-zinc-500">Volume</div>
                         <div className="text-zinc-100 truncate">{tf.volumeState}</div>
                       </div>
@@ -733,17 +733,17 @@ export function AnalysisResultView({
                     </p>
 
                     {/* Actual Indicator Readings Table */}
-                    <div className="overflow-x-auto rounded-xl border border-white/8">
+                    <div className="overflow-x-auto rounded-xl border border-[#D4AF37]/25">
                       <table className="w-full text-left border-collapse text-xs">
                         <thead>
-                          <tr className="bg-[#0C0D11] text-zinc-400 border-b border-white/8">
+                          <tr className="bg-[#0C0D11] text-zinc-400 border-b border-[#D4AF37]/20">
                             <th className="py-2 px-3 font-medium">Indicator</th>
                             <th className="py-2 px-3 font-medium">Category</th>
                             <th className="py-2 px-3 font-medium">Calculated Value</th>
                             <th className="py-2 px-3 font-medium text-right">Bias</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-white/5">
+                        <tbody className="divide-y divide-[#D4AF37]/15">
                           {tf.indicatorResults.map((ind) => {
                             const bColor =
                               ind.bias === 'BUY'

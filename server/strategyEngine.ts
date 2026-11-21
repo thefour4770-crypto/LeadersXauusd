@@ -863,6 +863,16 @@ function computeAll11IndicatorsSnapshot(
   return { indicators, trendClusterBias, trendClusterScore };
 }
 
+export function isGoldMarketWeekendClosed(nowMs = Date.now()): boolean {
+  const d = new Date(nowMs);
+  const day = d.getUTCDay(); // 0 = Sun, 5 = Fri, 6 = Sat
+  const minsUtc = d.getUTCHours() * 60 + d.getUTCMinutes();
+  if (day === 6) return true; // Saturday all day UTC
+  if (day === 0 && minsUtc < 23 * 60) return true; // Sunday before 23:00 UTC open
+  if (day === 5 && minsUtc >= 22 * 60 + 5) return true; // Friday after 22:05 UTC close
+  return false;
+}
+
 function scoreCategoryFromScore(score: number): SetupScoreCategory {
   if (score >= 85) return 'STRONG SIGNAL';
   if (score >= 75) return 'VALID SIGNAL';
@@ -915,8 +925,13 @@ export function evaluateStrictMultiTimeframeStrategy(
         ? computeAll11IndicatorsSnapshot(closed5m, closed1m, indicatorConfigs).indicators
         : [];
 
+    const weekendClosed =
+      feedIntegrity.staleFeeds.length > 0 && isGoldMarketWeekendClosed(nowMs);
+    const primaryReason = feedIntegrity.blockingReasons[0] ?? 'Market data integrity check failed';
     const blockers = [
-      `DATA UNAVAILABLE: ${feedIntegrity.blockingReasons[0] ?? 'Market data integrity check failed'}`,
+      weekendClosed
+        ? `DATA UNAVAILABLE: Weekend Market Closed (XAU/USD reopens Sunday 23:00 UTC / Mon 04:30 IST). ${primaryReason}`
+        : `DATA UNAVAILABLE: ${primaryReason}`,
       ...feedIntegrity.blockingReasons.slice(1, 5),
     ];
 

@@ -80,9 +80,9 @@ export const IndicatorSelector = memo(function IndicatorSelector({
       {/* Separated Indicator Configuration Card */}
       <section
         aria-label="Indicator Configuration"
-        className="rounded-2xl border border-white/12 bg-[#121318] p-4 space-y-3"
+        className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] p-4 space-y-3"
       >
-        <div className="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 border-b border-white/8">
+        <div className="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 border-b border-[#D4AF37]/20">
           <div>
             <div className="text-[10px] font-mono uppercase tracking-[0.14em] text-zinc-400">
               Indicator Configuration
@@ -124,7 +124,7 @@ export const IndicatorSelector = memo(function IndicatorSelector({
           {categorySummaries.map((cat) => (
             <div
               key={cat.key}
-              className="rounded-xl border border-white/8 bg-[#0C0D11]/80 px-2.5 py-2 flex items-center justify-between gap-1.5"
+              className="rounded-xl border border-[#D4AF37]/22 bg-[#0C0D11]/80 px-2.5 py-2 flex items-center justify-between gap-1.5"
             >
               <span className="text-[11px] text-zinc-400 truncate">{cat.label}</span>
               <span
@@ -139,7 +139,7 @@ export const IndicatorSelector = memo(function IndicatorSelector({
         </div>
 
         {/* Subtle Inner-Bordered Summary of Active Indicators */}
-        <div className="rounded-xl border border-white/8 bg-[#0C0D11]/60 px-3 py-2.5">
+        <div className="rounded-xl border border-[#D4AF37]/22 bg-[#0C0D11]/60 px-3 py-2.5">
           {enabledNames.length > 0 ? (
             <p className="text-xs text-zinc-400 leading-relaxed line-clamp-3">
               {enabledNames.join(' · ')}
@@ -160,14 +160,14 @@ export const IndicatorSelector = memo(function IndicatorSelector({
           aria-modal="true"
           aria-label="Configure Technical Indicators"
         >
-          <div className="w-full max-w-2xl max-h-[88vh] flex flex-col rounded-t-3xl sm:rounded-2xl bg-[#121318] border border-white/15 overflow-hidden">
+          <div className="w-full max-w-2xl max-h-[88vh] flex flex-col rounded-t-3xl sm:rounded-2xl bg-[#121318] border border-[#D4AF37]/40 shadow-[0_16px_48px_-16px_rgba(212,175,55,0.28)] overflow-hidden">
             {/* Drag Handle on mobile */}
             <div className="sm:hidden pt-2.5 pb-1 flex justify-center">
-              <div className="w-10 h-1 rounded-full bg-zinc-700" />
+              <div className="w-10 h-1 rounded-full bg-[#D4AF37]/45" />
             </div>
 
             {/* Header */}
-            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10">
+            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-[#D4AF37]/20">
               <div>
                 <h3 className="text-base font-display font-semibold text-zinc-100">
                   Technical Indicators
@@ -210,7 +210,7 @@ export const IndicatorSelector = memo(function IndicatorSelector({
             </div>
 
             {/* 4 Category Tabs */}
-            <div className="grid grid-cols-4 gap-1 p-2 bg-[#0C0D11] border-b border-white/10">
+            <div className="grid grid-cols-4 gap-1 p-2 bg-[#0C0D11] border-b border-[#D4AF37]/20">
               {categorySummaries.map((cat) => {
                 const active = activeCategory === cat.key;
                 return (
@@ -231,7 +231,7 @@ export const IndicatorSelector = memo(function IndicatorSelector({
             </div>
 
             {/* Category Quick Actions */}
-            <div className="flex items-center justify-between px-4 py-2 bg-[#0F1015] border-b border-white/5 text-xs">
+            <div className="flex items-center justify-between px-4 py-2 bg-[#0F1015] border-b border-[#D4AF37]/15 text-xs">
               <span className="text-zinc-400">
                 {categoryEnabledCount} / {categoryDefs.length} active in {activeCategory}
               </span>
@@ -254,7 +254,7 @@ export const IndicatorSelector = memo(function IndicatorSelector({
             </div>
 
             {/* Indicator List */}
-            <div className="flex-1 overflow-y-auto divide-y divide-white/8">
+            <div className="flex-1 overflow-y-auto divide-y divide-[#D4AF37]/15">
               {categoryDefs.map((def) => {
                 const cfg = indicatorById.get(def.id)!;
                 const isExpanded = expandedParamId === def.id;
@@ -306,7 +306,7 @@ export const IndicatorSelector = memo(function IndicatorSelector({
                           return (
                             <div
                               key={spec.key}
-                              className="flex items-center justify-between gap-2 rounded-xl bg-[#181A20] border border-white/8 px-3 py-2"
+                              className="flex items-center justify-between gap-2 rounded-xl bg-[#181A20] border border-[#D4AF37]/25 px-3 py-2"
                             >
                               <span className="text-xs text-zinc-300">{spec.label}</span>
                               <div className="flex items-center gap-1.5">
@@ -366,7 +366,7 @@ export const IndicatorSelector = memo(function IndicatorSelector({
             </div>
 
             {/* Bottom Done Bar */}
-            <div className="p-3.5 border-t border-white/10 bg-[#0C0D11]">
+            <div className="p-3.5 border-t border-[#D4AF37]/20 bg-[#0C0D11]">
               <button
                 type="button"
                 onClick={() => setSheetOpen(false)}

@@ -28,8 +28,8 @@ export const TimeframeSelector = memo(function TimeframeSelector({
     <div
       className={
         embedded
-          ? 'rounded-xl border border-white/8 bg-[#0C0D11]/80 p-3 space-y-3'
-          : 'rounded-2xl border border-white/10 bg-[#121318] p-3.5 space-y-3'
+          ? 'rounded-xl border border-[#D4AF37]/25 bg-[#0C0D11]/80 p-3 space-y-3'
+          : 'rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] p-3.5 space-y-3'
       }
     >
       {/* Row 1: Chart Timeframe */}
@@ -50,7 +50,7 @@ export const TimeframeSelector = memo(function TimeframeSelector({
                   className={`min-h-[40px] px-2 rounded-xl text-xs font-mono font-semibold transition-colors whitespace-nowrap ${
                     isActive
                       ? 'bg-[#D4AF37] text-[#09090B]'
-                      : 'bg-[#181A20] text-zinc-300 hover:bg-white/10 border border-white/5'
+                      : 'bg-[#181A20] text-zinc-300 hover:bg-[#D4AF37]/10 hover:border-[#D4AF37]/45 border border-[#D4AF37]/20'
                   }`}
                 >
                   {tf}
@@ -62,7 +62,7 @@ export const TimeframeSelector = memo(function TimeframeSelector({
       )}
 
       {/* Divider */}
-      {showChartTf && showAnalysisTf && <div className="h-px bg-white/8" />}
+      {showChartTf && showAnalysisTf && <div className="h-px bg-[#D4AF37]/20" />}
 
       {/* Row 2: Multi-Timeframe Analysis Scope */}
       {showAnalysisTf && (
@@ -102,8 +102,8 @@ export const TimeframeSelector = memo(function TimeframeSelector({
                   aria-pressed={isSelected}
                   className={`min-h-[40px] px-2 rounded-xl text-xs font-mono font-medium inline-flex items-center justify-center gap-1 transition-colors whitespace-nowrap border ${
                     isSelected
-                      ? 'bg-[#D4AF37]/15 border-[#D4AF37]/60 text-[#F5D061]'
-                      : 'bg-[#181A20] border-white/5 text-zinc-400 hover:text-zinc-200 hover:border-white/15'
+                      ? 'bg-[#D4AF37]/15 border-[#D4AF37]/65 text-[#F5D061]'
+                      : 'bg-[#181A20] border-[#D4AF37]/20 text-zinc-400 hover:text-zinc-200 hover:border-[#D4AF37]/45'
                   }`}
                 >
                   {isSelected && <Check className="w-3 h-3 shrink-0" />}

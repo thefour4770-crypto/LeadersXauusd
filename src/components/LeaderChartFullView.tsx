@@ -7,6 +7,7 @@ import {
   type ChartOverlaySeries,
   type Timeframe,
 } from '../types/market.ts';
+import { isMarketClosedStatus } from '../utils/marketHours.ts';
 import { SmoothedPriceText } from './SmoothedPriceText.tsx';
 import { XauUsdChart } from './XauUsdChart.tsx';
 
@@ -28,9 +29,11 @@ interface LeaderChartFullViewProps {
 const LeaderHeaderPrice = memo(function LeaderHeaderPrice({
   lastCandleClose,
   hasCandles,
+  latestCandleTimestamp,
 }: {
   lastCandleClose: number | null;
   hasCandles: boolean;
+  latestCandleTimestamp: number | null;
 }) {
   const { quote, error: quoteError } = useLiveQuoteState();
 
@@ -46,6 +49,13 @@ const LeaderHeaderPrice = memo(function LeaderHeaderPrice({
       ? 'DELAYED'
       : 'UNAVAILABLE';
 
+  const latestDataTs =
+    quote && quote.freshness !== 'UNAVAILABLE' && quote.timestamp
+      ? quote.timestamp
+      : latestCandleTimestamp;
+
+  const marketClosed = isMarketClosedStatus(freshness, latestDataTs);
+
   return (
     <div className="min-w-0 space-y-0.5">
       <div className="flex items-center gap-2 text-xs font-mono">
@@ -57,15 +67,20 @@ const LeaderHeaderPrice = memo(function LeaderHeaderPrice({
           className={`inline-flex items-center gap-1.5 font-semibold ${
             freshness === 'LIVE'
               ? 'text-emerald-400'
-              : freshness === 'DELAYED'
-              ? 'text-amber-400'
-              : 'text-red-400'
+              : marketClosed || freshness === 'UNAVAILABLE'
+              ? 'text-red-400'
+              : 'text-amber-400'
           }`}
         >
           {freshness === 'LIVE' && (
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
           )}
-          {freshness === 'UNAVAILABLE' ? 'DATA UNAVAILABLE' : freshness}
+          {marketClosed && <span className="w-1.5 h-1.5 rounded-full bg-red-400" />}
+          {freshness === 'UNAVAILABLE'
+            ? 'DATA UNAVAILABLE'
+            : marketClosed
+            ? 'MARKET CLOSED'
+            : freshness}
         </span>
       </div>
 
@@ -122,18 +137,21 @@ export const LeaderChartFullView = memo(function LeaderChartFullView({
       aria-label="Leader Chart View Only"
     >
       {/* Compact Live Price Bar */}
-      <header className="shrink-0 bg-[#0D0E12] border-b border-white/10 px-3 sm:px-5 py-2.5 space-y-2">
+      <header className="shrink-0 bg-[#0D0E12] border-b border-[#D4AF37]/30 px-3 sm:px-5 py-2.5 space-y-2">
         <div className="flex items-center justify-between gap-3">
           <LeaderHeaderPrice
             lastCandleClose={lastCandleClose}
             hasCandles={candles.length > 0}
+            latestCandleTimestamp={
+              candles.length > 0 ? candles[candles.length - 1].time * 1000 : null
+            }
           />
 
           <button
             type="button"
             onClick={onClose}
             aria-label="Exit Leader Chart View Only"
-            className="min-h-[44px] px-3 rounded-xl bg-[#181A20] border border-white/15 text-zinc-200 hover:border-[#D4AF37]/50 hover:text-[#F5D061] text-xs font-semibold inline-flex items-center gap-1.5 transition-colors shrink-0"
+            className="min-h-[44px] px-3 rounded-xl bg-[#181A20] border border-[#D4AF37]/35 text-zinc-200 hover:border-[#D4AF37]/65 hover:text-[#F5D061] text-xs font-semibold inline-flex items-center gap-1.5 transition-colors shrink-0"
           >
             <X className="w-4 h-4" />
             <span className="hidden sm:inline">Close</span>
@@ -149,10 +167,10 @@ export const LeaderChartFullView = memo(function LeaderChartFullView({
                 key={`leader-tf-${tf}`}
                 type="button"
                 onClick={() => onChangeTimeframe(tf)}
-                className={`min-h-[36px] px-3 rounded-lg text-xs font-mono font-semibold transition-colors whitespace-nowrap shrink-0 ${
+                className={`min-h-[36px] px-3 rounded-lg text-xs font-mono font-semibold transition-colors whitespace-nowrap shrink-0 border ${
                   active
-                    ? 'bg-[#D4AF37] text-[#09090B]'
-                    : 'bg-[#181A20] text-zinc-400 hover:text-zinc-100'
+                    ? 'bg-[#D4AF37] border-[#D4AF37] text-[#09090B]'
+                    : 'bg-[#181A20] border-[#D4AF37]/20 text-zinc-400 hover:border-[#D4AF37]/45 hover:text-zinc-100'
                 }`}
               >
                 {tf}

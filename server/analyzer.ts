@@ -21,9 +21,11 @@ import { evaluateCurrentNewsProtection } from './newsCalendar.ts';
 import { saveReport } from './reportsStore.ts';
 import {
   evaluateStrictMultiTimeframeStrategy,
+  sliceClosedCandles,
   type StrategyDatasetsInput,
 } from './strategyEngine.ts';
 import { computeSignalConfidence, computeTimeframeConfidencePct } from '../src/utils/signalConfidence.ts';
+import { TIMEFRAME_SECONDS } from './marketData.ts';
 
 const TIMEFRAME_WEIGHTS: Record<Timeframe, number> = {
   '1m': 0.7,
@@ -65,6 +67,19 @@ export class NewsBlockedError extends Error {
   }
 }
 
+function isFreshSpotDataset(
+  ds: CandleDataset | null,
+  timeframe: '1m' | '5m',
+  maxClosedAgeSec: number,
+  nowSec = Math.floor(Date.now() / 1000)
+): ds is CandleDataset {
+  if (!ds || ds.freshness !== 'LIVE') return false;
+  const { closed } = sliceClosedCandles(ds.candles, timeframe, nowSec);
+  if (closed.length < 60) return false;
+  const lastClosed = closed[closed.length - 1];
+  return Boolean(lastClosed) && nowSec - lastClosed.time <= maxClosedAgeSec;
+}
+
 export async function fetchStrategyDatasets(): Promise<StrategyDatasetsInput> {
   const [spot1m, spot5m, f1H, f15m, f5m, f1m] = await Promise.all([
     getPureSpotCandles('1m'),
@@ -75,9 +90,14 @@ export async function fetchStrategyDatasets(): Promise<StrategyDatasetsInput> {
     fetchPureFuturesCandles('1m'),
   ]);
 
-  // Use pure Spot XAU/USD 1m & 5m streams once >= 60 bars exist (max 5m indicator warmup is EMA50/OBV20)
-  const tf1m = spot1m && spot1m.candles.length >= 60 ? spot1m : f1m;
-  const tf5m = spot5m && spot5m.candles.length >= 60 ? spot5m : f5m;
+  const nowSec = Math.floor(Date.now() / 1000);
+  // Use pure Spot XAU/USD 1m & 5m streams only when >= 60 closed bars exist AND the latest closed bar is fresh
+  const tf1m = isFreshSpotDataset(spot1m, '1m', Math.max(240, TIMEFRAME_SECONDS['1m'] * 3), nowSec)
+    ? spot1m
+    : f1m;
+  const tf5m = isFreshSpotDataset(spot5m, '5m', TIMEFRAME_SECONDS['5m'] * 3, nowSec)
+    ? spot5m
+    : f5m;
 
   return {
     tf1H: f1H,

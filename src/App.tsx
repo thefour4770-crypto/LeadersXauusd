@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowDown,
   ArrowUp,
@@ -24,18 +24,6 @@ import {
   type AdaptivePollState,
 } from './utils/adaptivePolling.ts';
 import {
-  computeClientSureStats,
-  deleteAnalysisReportFromFirestore,
-  deleteSureSignalFromFirestore,
-  ensureUserAccountDoc,
-  mergeAnalysisReports,
-  mergeSureSignalHistories,
-  saveAnalysisReportToFirestore,
-  subscribeAnalysisReportsFirestore,
-  subscribeSureSignalsFirestore,
-  syncSureSignalToFirestore,
-} from './utils/historyFirestore.ts';
-import {
   getPersistedBannerSeenIds,
   isPhoneAlertsEnabled,
   markBannerSeenIds,
@@ -47,12 +35,11 @@ import {
   unlockAlertAudio,
 } from './utils/phoneNotifications.ts';
 import { publishLiveQuote, useLiveQuoteState } from './contexts/LiveQuoteContext.tsx';
-import { useAuth } from './contexts/AuthContext.tsx';
-import { LoginScreen } from './components/LoginScreen.tsx';
 import { NewsCalendarView } from './components/NewsCalendarView.tsx';
 import { ProfileView } from './components/ProfileView.tsx';
 import { SignalsView } from './components/SignalsView.tsx';
 import { SmoothedPriceText } from './components/SmoothedPriceText.tsx';
+import { SureIconBadge } from './components/SureIconBadge.tsx';
 import { SureSignalsView } from './components/SureSignalsView.tsx';
 import { TradeView } from './components/TradeView.tsx';
 import { useOnlineStatus } from './hooks/usePWAInstall.ts';
@@ -98,7 +85,6 @@ const HeaderPriceStatus = memo(function HeaderPriceStatus() {
 });
 
 export default function App() {
-  const { user, loading: authLoading } = useAuth();
   const [activeTab, setActiveTab] = useState<BottomTab>(() => {
     if (typeof window !== 'undefined') {
       const tabParam = new URLSearchParams(window.location.search).get('tab');
@@ -108,14 +94,10 @@ export default function App() {
     }
     return 'TRADE';
   });
-  const [serverReports, setServerReports] = useState<AnalysisReport[]>([]);
-  const [firestoreReports, setFirestoreReports] = useState<AnalysisReport[]>([]);
-  const [serverReportsLoading, setServerReportsLoading] = useState(true);
-  const [firestoreReportsLoaded, setFirestoreReportsLoaded] = useState(false);
+  const [reports, setReports] = useState<AnalysisReport[]>([]);
+  const [reportsLoading, setReportsLoading] = useState(true);
 
   const [sureStatus, setSureStatus] = useState<SureSignalScanStatus | null>(null);
-  const [firestoreSureSignals, setFirestoreSureSignals] = useState<SureSignalEntry[]>([]);
-  const [firestoreSureLoaded, setFirestoreSureLoaded] = useState(false);
   const [sureLoading, setSureLoading] = useState(true);
 
   const [newsCalendar, setNewsCalendar] = useState<EconomicCalendarPayload | null>(null);
@@ -136,15 +118,6 @@ export default function App() {
   activeTabRef.current = activeTab;
   const sureStatusesRef = useRef<Map<string, SureSignalStatus>>(new Map());
   const sureBaselineHydratedRef = useRef(false);
-  const syncedReportIdsRef = useRef<Set<string>>(new Set());
-  const syncingSureKeysRef = useRef<Set<string>>(new Set());
-  const finalizedSureIdsRef = useRef<Set<string>>(new Set());
-  const restoredActiveIdsRef = useRef<Set<string>>(new Set());
-  const [firestoreFatalError, setFirestoreFatalError] = useState<Error | null>(null);
-
-  if (firestoreFatalError) {
-    throw firestoreFatalError;
-  }
 
   const applyIncomingQuote = useCallback((nextQuote: MarketQuote | null, ok: boolean) => {
     if (nextQuote && nextQuote.freshness !== 'UNAVAILABLE' && nextQuote.mid > 0) {
@@ -190,10 +163,10 @@ export default function App() {
       if (!res.ok) return;
       const json = await res.json();
       if (Array.isArray(json.reports)) {
-        setServerReports(json.reports);
+        setReports(json.reports);
       }
     } finally {
-      setServerReportsLoading(false);
+      setReportsLoading(false);
     }
   }, []);
 
@@ -304,169 +277,13 @@ export default function App() {
         setSureStatus((prev) =>
           prev ? { ...prev, history: prev.history.filter((h) => h.id !== id) } : prev
         );
-      } else {
-        return;
-      }
-
-      if (user) {
-        await deleteSureSignalFromFirestore(user.uid, id);
       }
     },
-    [applyIncomingSureStatus, user]
+    [applyIncomingSureStatus]
   );
-
-  // Real-time Firestore history subscriptions for authenticated user
-  useEffect(() => {
-    if (!user) {
-      setFirestoreReports([]);
-      setFirestoreSureSignals([]);
-      setFirestoreReportsLoaded(false);
-      setFirestoreSureLoaded(false);
-      syncedReportIdsRef.current.clear();
-      syncingSureKeysRef.current.clear();
-      finalizedSureIdsRef.current.clear();
-      restoredActiveIdsRef.current.clear();
-      return;
-    }
-
-    let cancelled = false;
-    let unsubSure: (() => void) | null = null;
-    let unsubReports: (() => void) | null = null;
-
-    void (async () => {
-      try {
-        await ensureUserAccountDoc(user.uid);
-        if (cancelled) return;
-
-        unsubSure = subscribeSureSignalsFirestore(
-          user.uid,
-          (signals) => {
-            if (cancelled) return;
-            setFirestoreSureSignals(signals);
-            setFirestoreSureLoaded(true);
-          },
-          (err) => {
-            if (!cancelled) setFirestoreFatalError(err);
-          }
-        );
-
-        unsubReports = subscribeAnalysisReportsFirestore(
-          user.uid,
-          (loadedReports) => {
-            if (cancelled) return;
-            setFirestoreReports(loadedReports);
-            setFirestoreReportsLoaded(true);
-          },
-          (err) => {
-            if (!cancelled) setFirestoreFatalError(err);
-          }
-        );
-      } catch (err) {
-        if (!cancelled && err instanceof Error) {
-          setFirestoreFatalError(err);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      unsubSure?.();
-      unsubReports?.();
-    };
-  }, [user]);
-
-  // Sync newly discovered or updated SURE signals from backend into permanent Firestore storage
-  useEffect(() => {
-    if (!user || !firestoreSureLoaded || !sureStatus?.history?.length) return;
-    const firestoreById = new Map(firestoreSureSignals.map((item) => [item.id, item]));
-
-    for (const entry of sureStatus.history) {
-      const existingFs = firestoreById.get(entry.id) ?? null;
-      if ((existingFs && existingFs.status !== 'ACTIVE') || finalizedSureIdsRef.current.has(entry.id)) {
-        continue;
-      }
-
-      const syncKey = `${entry.id}:${entry.status}:${entry.closedAt ?? ''}`;
-      if (syncingSureKeysRef.current.has(syncKey)) {
-        continue;
-      }
-
-      syncingSureKeysRef.current.add(syncKey);
-      void syncSureSignalToFirestore(user.uid, entry, existingFs)
-        .then(() => {
-          if (entry.status !== 'ACTIVE') {
-            finalizedSureIdsRef.current.add(entry.id);
-          }
-        })
-        .catch((err) => {
-          if (err instanceof Error) {
-            setFirestoreFatalError(err);
-          }
-        })
-        .finally(() => {
-          syncingSureKeysRef.current.delete(syncKey);
-        });
-    }
-  }, [user, firestoreSureLoaded, sureStatus?.history, firestoreSureSignals]);
-
-  // Sync any server-side analysis reports into permanent Firestore storage
-  useEffect(() => {
-    if (!user || !firestoreReportsLoaded || serverReports.length === 0) return;
-    const firestoreIds = new Set(firestoreReports.map((r) => r.id));
-
-    for (const report of serverReports) {
-      if (firestoreIds.has(report.id) || syncedReportIdsRef.current.has(report.id)) {
-        continue;
-      }
-      syncedReportIdsRef.current.add(report.id);
-      void saveAnalysisReportToFirestore(user.uid, report).catch((err) => {
-        syncedReportIdsRef.current.delete(report.id);
-        if (err instanceof Error) {
-          setFirestoreFatalError(err);
-        }
-      });
-    }
-  }, [user, firestoreReportsLoaded, serverReports, firestoreReports]);
-
-  // If Firestore holds any ACTIVE SURE signal missing from server (e.g. after server restart/switch),
-  // restore its lock on backend or settle it if superseded/closed so Firestore never stays stale ACTIVE.
-  useEffect(() => {
-    if (!user || !firestoreSureLoaded || sureLoading) return;
-    const serverIds = new Set((sureStatus?.history ?? []).map((s) => s.id));
-    const orphanedActives = firestoreSureSignals.filter(
-      (s) => s.status === 'ACTIVE' && !serverIds.has(s.id) && !restoredActiveIdsRef.current.has(s.id)
-    );
-    if (orphanedActives.length === 0) return;
-
-    for (const activeFs of orphanedActives) {
-      restoredActiveIdsRef.current.add(activeFs.id);
-      void fetch('/api/sure-signals/sync-active', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entry: activeFs }),
-      })
-        .then((res) => (res.ok ? res.json() : null))
-        .then((json: { sureStatus?: SureSignalScanStatus } | null) => {
-          if (json?.sureStatus) {
-            applyIncomingSureStatus(json.sureStatus);
-          }
-        })
-        .catch(() => {
-          restoredActiveIdsRef.current.delete(activeFs.id);
-        });
-    }
-  }, [
-    user,
-    firestoreSureLoaded,
-    sureLoading,
-    firestoreSureSignals,
-    sureStatus?.history,
-    applyIncomingSureStatus,
-  ]);
 
   // Automatically unlock Web Audio on first tap/keypress when alerts are enabled in localStorage
   useEffect(() => {
-    if (!user) return;
     const handleFirstGesture = () => {
       if (isPhoneAlertsEnabled()) {
         void unlockAlertAudio();
@@ -478,27 +295,19 @@ export default function App() {
       window.removeEventListener('pointerdown', handleFirstGesture);
       window.removeEventListener('keydown', handleFirstGesture);
     };
-  }, [user]);
+  }, []);
 
   // Sync browser Web Push (VAPID) subscription on boot and whenever notification permission becomes granted
   useEffect(() => {
-    if (!user) return;
     void syncWebPushSubscriptionIfEnabled();
     return subscribeNotificationPermissionSync((perm) => {
       if (perm === 'granted') {
         void syncWebPushSubscriptionIfEnabled();
       }
     });
-  }, [user]);
+  }, []);
 
   useEffect(() => {
-    if (!user) {
-      if (!authLoading) {
-        setActiveTab('TRADE');
-      }
-      return;
-    }
-
     let cancelled = false;
     let timerId: number | null = null;
     let eventSource: EventSource | null = null;
@@ -643,7 +452,7 @@ export default function App() {
       }
     };
 
-    fetchReports();
+    void fetchReports();
     void fetchSureStatus();
     void fetchNewsCalendar(false);
     void startLiveSync();
@@ -663,8 +472,6 @@ export default function App() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [
-    user,
-    authLoading,
     applyIncomingQuote,
     applyIncomingSureStatus,
     fetchNewsCalendar,
@@ -673,37 +480,19 @@ export default function App() {
     fetchSureStatus,
   ]);
 
-  const handleReportSaved = useCallback(
-    (report: AnalysisReport) => {
-      setServerReports((prev) => {
-        if (prev.some((r) => r.id === report.id)) return prev;
-        return [report, ...prev];
-      });
-      if (user && !syncedReportIdsRef.current.has(report.id)) {
-        syncedReportIdsRef.current.add(report.id);
-        void saveAnalysisReportToFirestore(user.uid, report).catch((err) => {
-          syncedReportIdsRef.current.delete(report.id);
-          if (err instanceof Error) {
-            setFirestoreFatalError(err);
-          }
-        });
-      }
-    },
-    [user]
-  );
+  const handleReportSaved = useCallback((report: AnalysisReport) => {
+    setReports((prev) => {
+      if (prev.some((r) => r.id === report.id)) return prev;
+      return [report, ...prev];
+    });
+  }, []);
 
-  const handleDeleteReport = useCallback(
-    async (id: string) => {
-      const res = await fetch(`/api/reports/${encodeURIComponent(id)}`, { method: 'DELETE' });
-      if (res.ok || res.status === 404) {
-        setServerReports((prev) => prev.filter((r) => r.id !== id));
-        if (user) {
-          await deleteAnalysisReportFromFirestore(user.uid, id);
-        }
-      }
-    },
-    [user]
-  );
+  const handleDeleteReport = useCallback(async (id: string) => {
+    const res = await fetch(`/api/reports/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (res.ok || res.status === 404) {
+      setReports((prev) => prev.filter((r) => r.id !== id));
+    }
+  }, []);
 
   const handleGoToTrade = useCallback(() => {
     setActiveTab('TRADE');
@@ -713,96 +502,12 @@ export default function App() {
     void fetchNewsCalendar(true);
   }, [fetchNewsCalendar]);
 
-  const reports = useMemo(
-    () => mergeAnalysisReports(serverReports, firestoreReports),
-    [serverReports, firestoreReports]
-  );
-  const reportsLoading = serverReportsLoading && !firestoreReportsLoaded;
-
-  const effectiveSureStatus = useMemo<SureSignalScanStatus | null>(() => {
-    if (!sureStatus) {
-      if (!firestoreSureLoaded || firestoreSureSignals.length === 0) return null;
-      const activeFs = firestoreSureSignals.find((h) => h.status === 'ACTIVE') ?? null;
-      return {
-        scanning: false,
-        tradeLocked: Boolean(activeFs),
-        lastScannedAt: null,
-        nextScanAt: null,
-        scanIntervalMs: 60_000,
-        monitoringMode: 'REALTIME_SPOT_BBO',
-        marketState: activeFs
-          ? activeFs.direction === 'BUY'
-            ? 'SURE_BUY'
-            : 'SURE_SELL'
-          : 'NO_SURE_SIGNAL',
-        latestPrice: null,
-        latestConfidencePct: activeFs?.setupScore ?? 0,
-        latestScore: activeFs?.combinedScore ?? 0,
-        latestSetupScore: activeFs?.setupScore ?? 0,
-        latestAdx: activeFs?.adxValue ?? null,
-        reason: activeFs
-          ? `Monitoring ACTIVE SURE ${activeFs.direction}. New scan paused until SL or TP hits.`
-          : 'SCANNING FOR HIGH-QUALITY SETUP',
-        checks: activeFs?.checks ?? [],
-        activeSignal: activeFs ?? firestoreSureSignals[0] ?? null,
-        history: firestoreSureSignals,
-        stats: computeClientSureStats(firestoreSureSignals),
-      };
-    }
-
-    const mergedHistory = mergeSureSignalHistories(sureStatus.history, firestoreSureSignals);
-    const activeFromMerged = mergedHistory.find((h) => h.status === 'ACTIVE') ?? null;
-    const locked = Boolean(activeFromMerged);
-    const newsBlocked =
-      sureStatus.marketState === 'NEWS_PAUSED' || sureStatus.newsProtection?.blocked === true;
-
-    return {
-      ...sureStatus,
-      tradeLocked: locked,
-      nextScanAt: locked ? null : sureStatus.nextScanAt,
-      activeSignal: newsBlocked
-        ? null
-        : activeFromMerged ?? mergedHistory[0] ?? sureStatus.activeSignal ?? null,
-      marketState: newsBlocked
-        ? sureStatus.marketState
-        : activeFromMerged
-        ? activeFromMerged.direction === 'BUY'
-          ? 'SURE_BUY'
-          : 'SURE_SELL'
-        : sureStatus.marketState,
-      history: mergedHistory,
-      stats: computeClientSureStats(mergedHistory),
-    };
-  }, [sureStatus, firestoreSureSignals, firestoreSureLoaded]);
-
   const effectiveNewsProtection =
-    newsProtection ?? effectiveSureStatus?.newsProtection ?? newsCalendar?.protection ?? null;
+    newsProtection ?? sureStatus?.newsProtection ?? newsCalendar?.protection ?? null;
   const isNewsPaused =
-    effectiveNewsProtection?.blocked === true || effectiveSureStatus?.marketState === 'NEWS_PAUSED';
-  const activeTradeLocked = (effectiveSureStatus?.tradeLocked ?? false) && !isNewsPaused;
-  const navSureMarketState = effectiveSureStatus?.marketState;
-
-  if (authLoading) {
-    return (
-      <div className="min-h-screen w-full bg-gradient-to-b from-[#FFFFFF] via-[#FDFBF7] to-[#F5EEDB] text-[#09090B] flex flex-col items-center justify-center gap-4 px-6">
-        <img
-          src="/assets/aistudio/images_0b890af9.png"
-          alt="LEADERS XAUUSD Icon"
-          className="w-12 h-12 rounded-full object-cover shadow-[0_10px_30px_-10px_rgba(255,173,0,0.45)]"
-        />
-        <div className="text-center">
-          <div className="font-display font-bold tracking-tight text-lg text-[#09090B]">
-            LEADER <span className="text-[#9A7209]">XAUUSD</span>
-          </div>
-          <p className="text-xs text-[#71717A] mt-0.5">Verifying session...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return <LoginScreen />;
-  }
+    effectiveNewsProtection?.blocked === true || sureStatus?.marketState === 'NEWS_PAUSED';
+  const activeTradeLocked = (sureStatus?.tradeLocked ?? false) && !isNewsPaused;
+  const navSureMarketState = sureStatus?.marketState;
 
   return (
     <div
@@ -811,7 +516,7 @@ export default function App() {
       }`}
     >
       {/* Compact Sticky Top Bar (52px) — opaque surface to eliminate mobile backdrop-blur scroll lag */}
-      <header className="sticky top-0 z-30 h-[52px] bg-[#09090B]/[0.98] border-b border-white/10">
+      <header className="sticky top-0 z-30 h-[52px] bg-[#09090B]/[0.98] border-b border-[#D4AF37]/30">
         <div className="max-w-7xl mx-auto h-full px-4 sm:px-6 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2.5 whitespace-nowrap shrink-0">
             <img
@@ -937,9 +642,9 @@ export default function App() {
           />
         ) : activeTab === 'SURE' ? (
           <SureSignalsView
-            sureStatus={effectiveSureStatus}
+            sureStatus={sureStatus}
             newsProtection={effectiveNewsProtection}
-            loading={sureLoading && !firestoreSureLoaded}
+            loading={sureLoading}
             onDeleteHistoryItem={handleDeleteSureSignal}
           />
         ) : activeTab === 'SIGNALS' ? (
@@ -958,7 +663,7 @@ export default function App() {
       {/* Bottom Navigation — Trade | News | Sure | Signal | Profile */}
       <nav
         aria-label="Primary Bottom Navigation"
-        className="fixed bottom-0 left-0 right-0 z-40 h-[58px] bg-[#0B0C10]/[0.98] border-t border-white/10 pb-[env(safe-area-inset-bottom)]"
+        className="fixed bottom-0 left-0 right-0 z-40 h-[58px] bg-[#0B0C10]/[0.98] border-t border-[#D4AF37]/30 pb-[env(safe-area-inset-bottom)]"
       >
         <div className="max-w-xl mx-auto h-full grid grid-cols-5 items-center px-1">
           <button
@@ -1012,26 +717,29 @@ export default function App() {
                 : activeTradeLocked && navSureMarketState === 'SURE_SELL'
                 ? 'border-red-500/65 bg-red-500/15 text-red-300 shadow-sm shadow-red-500/20'
                 : activeTab === 'SURE'
-                ? 'border-[#D4AF37]/60 bg-[#D4AF37]/12 text-[#F5D061]'
-                : 'border-white/15 bg-[#121318] text-zinc-200 hover:border-[#D4AF37]/45'
+                ? 'border-[#D4AF37]/75 bg-[#090A0E] text-[#F5D061] shadow-[0_0_18px_-5px_rgba(212,175,55,0.5)]'
+                : 'border-[#D4AF37]/35 bg-[#090A0E] text-zinc-200 hover:border-[#D4AF37]/65'
             }`}
           >
             {unreadSureAlert && !isNewsPaused && (
-              <span className="absolute top-1 right-1.5 w-2 h-2 rounded-full bg-[#F5D061] animate-pulse" />
+              <span className="absolute top-1 right-1.5 z-10 w-2 h-2 rounded-full bg-[#F5D061] animate-pulse" />
             )}
-            <div className="flex items-center gap-0.5">
-              <ArrowUp className={`w-3.5 h-3.5 stroke-[2.75] ${isNewsPaused ? 'text-red-400' : 'text-emerald-400'}`} />
-              <ArrowDown className="w-3.5 h-3.5 text-red-400 stroke-[2.75]" />
-            </div>
-            <span className="text-[9.5px] sm:text-[10px] font-display font-bold tracking-wide whitespace-nowrap">
-              {isNewsPaused
-                ? 'NO TRADE'
-                : activeTradeLocked && navSureMarketState === 'SURE_BUY'
-                ? 'SURE BUY'
-                : activeTradeLocked && navSureMarketState === 'SURE_SELL'
-                ? 'SURE SELL'
-                : 'Sure'}
-            </span>
+            {isNewsPaused ||
+            (activeTradeLocked &&
+              (navSureMarketState === 'SURE_BUY' || navSureMarketState === 'SURE_SELL')) ? (
+              <>
+                <SureIconBadge size="compact" />
+                <span className="text-[9px] leading-none font-display font-bold tracking-wide whitespace-nowrap">
+                  {isNewsPaused
+                    ? 'NO TRADE'
+                    : navSureMarketState === 'SURE_BUY'
+                    ? 'SURE BUY'
+                    : 'SURE SELL'}
+                </span>
+              </>
+            ) : (
+              <SureIconBadge size="nav" />
+            )}
           </button>
 
           <button

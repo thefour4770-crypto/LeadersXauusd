@@ -109,7 +109,7 @@ const EventRow = memo(function EventRow({
         </div>
 
         {/* Actual | Forecast | Previous */}
-        <div className="sm:col-span-4 grid grid-cols-3 gap-2 pt-1.5 sm:pt-0 border-t border-white/5 sm:border-t-0 sm:text-right">
+        <div className="sm:col-span-4 grid grid-cols-3 gap-2 pt-1.5 sm:pt-0 border-t border-[#D4AF37]/15 sm:border-t-0 sm:text-right">
           <MetricCell label="Actual" value={event.actual} highlight />
           <MetricCell label="Forecast" value={event.forecast} />
           <MetricCell label="Previous" value={event.previous} />
@@ -148,7 +148,7 @@ export const NewsCalendarView = memo(function NewsCalendarView({
   return (
     <div className="space-y-4 pb-6">
       {/* Header Bar — Automatic Locked Scope (NO manual filter controls) */}
-      <section className="rounded-2xl border border-white/10 bg-[#121318] p-4 space-y-3">
+      <section className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] p-4 space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
@@ -186,7 +186,7 @@ export const NewsCalendarView = memo(function NewsCalendarView({
               onClick={onRefresh}
               disabled={refreshing}
               aria-label="Refresh economic calendar"
-              className="min-h-[44px] px-3 rounded-xl border border-white/10 bg-[#181A20] text-xs font-semibold text-zinc-200 hover:border-[#D4AF37]/45 hover:text-[#F5D061] inline-flex items-center gap-1.5 transition-colors disabled:opacity-50"
+              className="min-h-[44px] px-3 rounded-xl border border-[#D4AF37]/30 bg-[#181A20] text-xs font-semibold text-zinc-200 hover:border-[#D4AF37]/60 hover:text-[#F5D061] inline-flex items-center gap-1.5 transition-colors disabled:opacity-50"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
               <span>Refresh</span>
@@ -240,7 +240,7 @@ export const NewsCalendarView = memo(function NewsCalendarView({
           {[1, 2, 3].map((n) => (
             <div
               key={n}
-              className="h-28 rounded-2xl border border-white/10 bg-[#121318] animate-pulse"
+              className="h-28 rounded-2xl border border-[#D4AF37]/30 bg-[#121318] animate-pulse"
             />
           ))}
         </div>
@@ -256,7 +256,7 @@ export const NewsCalendarView = memo(function NewsCalendarView({
       ) : (
         <div className="space-y-3">
           {/* Top-Center Year Header Required by Spec */}
-          <div className="rounded-2xl border border-[#D4AF37]/25 bg-[#121318] px-4 py-3 text-center space-y-1">
+          <div className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] px-4 py-3 text-center space-y-1">
             <div className="text-2xl sm:text-3xl font-display font-bold tracking-[0.16em] text-[#F5D061] tabular-nums">
               {calendar.yearHeader}
             </div>
@@ -281,9 +281,9 @@ export const NewsCalendarView = memo(function NewsCalendarView({
           {calendar.days.map((day) => (
             <section
               key={day.dateKey}
-              className="rounded-2xl border border-white/10 bg-[#121318] overflow-hidden"
+              className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] overflow-hidden"
             >
-              <header className="px-4 py-2.5 bg-[#181A20] border-b border-white/10 flex items-center justify-between gap-2">
+              <header className="px-4 py-2.5 bg-[#181A20] border-b border-[#D4AF37]/20 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <h2 className="text-sm font-display font-bold text-zinc-100">
                     {day.dayLabel}
@@ -305,7 +305,7 @@ export const NewsCalendarView = memo(function NewsCalendarView({
                   No scheduled USD red high-impact events on this date.
                 </div>
               ) : (
-                <div className="divide-y divide-white/8">
+                <div className="divide-y divide-[#D4AF37]/15">
                   {day.events.map((ev) => (
                     <EventRow
                       key={ev.id}

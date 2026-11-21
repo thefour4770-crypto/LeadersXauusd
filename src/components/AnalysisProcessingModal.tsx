@@ -40,7 +40,7 @@ export function AnalysisProcessingModal({
         initial={{ opacity: 0, scale: 0.96 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 0.2 }}
-        className="w-full max-w-md rounded-2xl border border-[#D4AF37]/30 bg-[#121318] p-6 space-y-5"
+        className="w-full max-w-md rounded-2xl border border-[#D4AF37]/40 bg-[#121318] shadow-[0_16px_48px_-16px_rgba(212,175,55,0.28)] p-6 space-y-5"
       >
         {errorMessage ? (
           <div className="space-y-4 text-center">
@@ -57,7 +57,7 @@ export function AnalysisProcessingModal({
               <button
                 type="button"
                 onClick={onCloseError}
-                className="flex-1 min-h-[44px] rounded-xl border border-white/15 text-zinc-300 text-xs font-semibold hover:bg-white/5 transition-colors"
+                className="flex-1 min-h-[44px] rounded-xl border border-[#D4AF37]/30 text-zinc-300 text-xs font-semibold hover:bg-[#D4AF37]/10 transition-colors"
               >
                 Close
               </button>
@@ -93,7 +93,7 @@ export function AnalysisProcessingModal({
                         ? 'border-[#D4AF37]/25 bg-[#D4AF37]/10 text-zinc-100'
                         : isActive
                         ? 'border-[#D4AF37]/50 bg-[#181A20] text-[#F5D061]'
-                        : 'border-white/5 bg-[#0E0F14] text-zinc-500'
+                        : 'border-[#D4AF37]/18 bg-[#0E0F14] text-zinc-500'
                     }`}
                   >
                     <div className="shrink-0">

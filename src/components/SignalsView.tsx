@@ -121,7 +121,7 @@ export const SignalsView = memo(function SignalsView({
           </p>
         </div>
 
-        <div className="flex items-center gap-1 p-1 rounded-xl bg-[#121318] border border-white/10 self-start sm:self-auto">
+        <div className="flex items-center gap-1 p-1 rounded-xl bg-[#121318] border border-[#D4AF37]/30 self-start sm:self-auto">
           {(['ALL', 'BUY', 'SELL', 'HOLD'] as FilterOption[]).map((opt) => (
             <button
               key={opt}
@@ -181,12 +181,12 @@ export const SignalsView = memo(function SignalsView({
           {[1, 2, 3].map((n) => (
             <div
               key={n}
-              className="h-24 rounded-2xl border border-white/8 bg-[#121318] animate-pulse"
+              className="h-24 rounded-2xl border border-[#D4AF37]/30 bg-[#121318] animate-pulse"
             />
           ))}
         </div>
       ) : filteredItems.length === 0 ? (
-        <div className="rounded-2xl border border-white/10 bg-[#121318] p-8 text-center space-y-3">
+        <div className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] p-8 text-center space-y-3">
           <div className="mx-auto w-11 h-11 rounded-2xl bg-[#D4AF37]/10 border border-[#D4AF37]/30 flex items-center justify-center text-[#D4AF37]">
             <FileText className="w-5 h-5" />
           </div>
@@ -238,7 +238,7 @@ export const SignalsView = memo(function SignalsView({
                     setSelectedReport(report);
                   }
                 }}
-                className="w-full text-left rounded-2xl border border-white/10 bg-[#121318] hover:border-[#D4AF37]/45 p-4 transition-colors cursor-pointer flex items-center justify-between gap-3"
+                className="w-full text-left rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] hover:border-[#D4AF37]/65 p-4 transition-colors cursor-pointer flex items-center justify-between gap-3"
               >
                 <div className="min-w-0 space-y-1.5">
                   <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">

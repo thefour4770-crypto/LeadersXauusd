@@ -554,8 +554,11 @@ export async function runSureSignalScan(): Promise<SureSignalScanStatus> {
           : 'SURE_SELL'
         : 'NO_SURE_SIGNAL';
 
+      const firstBlocker = evaluation.blockers[0] ?? 'Market data integrity check failed.';
       const reason = !evaluation.feedIntegrity.valid
-        ? `DATA UNAVAILABLE — ${evaluation.blockers[0] ?? 'Market data integrity check failed.'}`
+        ? firstBlocker.startsWith('DATA UNAVAILABLE')
+          ? firstBlocker
+          : `DATA UNAVAILABLE — ${firstBlocker}`
         : emittedNewSignal
         ? `SURE ${emittedNewSignal.direction} ACTIVE (Score ${emittedNewSignal.setupScore}/100, R:R ${emittedNewSignal.riskRewardRatio}). Tracking live XAU/USD Spot until TP HIT or SL HIT.`
         : `SCANNING FOR HIGH-QUALITY SETUP — ${evaluation.blockers[0] ?? `Score ${evaluation.totalScore}/100 (< 90/100 SURE minimum)`}`;
