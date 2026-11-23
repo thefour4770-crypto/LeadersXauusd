@@ -135,20 +135,55 @@ function detectUnsweptMajorWalls1H(candles: Candle[]): { highs: number[]; lows: 
   const win = candles.slice(-160);
   if (win.length < 15) return { highs: [], lows: [] };
   const pivots = detectSwings(win, 3);
-  const highs: number[] = [];
-  const lows: number[] = [];
+  const highs = new Set<number>();
+  const lows = new Set<number>();
   for (const p of pivots) {
     if (p.type === 'HIGH') {
       const swept = win.slice(p.index + 1).some((b) => b.high > p.price);
-      if (!swept) highs.push(Number(p.price.toFixed(2)));
+      if (!swept) highs.add(Number(p.price.toFixed(2)));
     } else {
       const swept = win.slice(p.index + 1).some((b) => b.low < p.price);
-      if (!swept) lows.push(Number(p.price.toFixed(2)));
+      if (!swept) lows.add(Number(p.price.toFixed(2)));
     }
   }
+
+  // Also capture fresh 24h closed 1H blow-off highs/lows with meaningful ATR rejection (without waiting 3h for leftRight=3 pivots)
+  const atr1H = getLatestAtrSafe(win, 14) ?? 10;
+  const recent24 = win.slice(-24);
+  if (recent24.length >= 4) {
+    const lastClosed1H = recent24[recent24.length - 1];
+    let maxIdx = 0;
+    let minIdx = 0;
+    for (let i = 1; i < recent24.length; i++) {
+      if (recent24[i].high > recent24[maxIdx].high) maxIdx = i;
+      if (recent24[i].low < recent24[minIdx].low) minIdx = i;
+    }
+    const peakBar = recent24[maxIdx];
+    const peakRange = Math.max(0.01, peakBar.high - peakBar.low);
+    const peakPullback = Math.max(peakBar.high - lastClosed1H.close, peakBar.high - peakBar.close);
+    const peakRejected =
+      peakPullback >= atr1H * 0.75 &&
+      (maxIdx <= recent24.length - 2 ||
+        (peakRange >= atr1H * 1.2 && (peakBar.high - peakBar.close) / peakRange >= 0.35));
+    if (peakRejected) {
+      highs.add(Number(peakBar.high.toFixed(2)));
+    }
+
+    const troughBar = recent24[minIdx];
+    const troughRange = Math.max(0.01, troughBar.high - troughBar.low);
+    const troughBounce = Math.max(lastClosed1H.close - troughBar.low, troughBar.close - troughBar.low);
+    const troughRejected =
+      troughBounce >= atr1H * 0.75 &&
+      (minIdx <= recent24.length - 2 ||
+        (troughRange >= atr1H * 1.2 && (troughBar.close - troughBar.low) / troughRange >= 0.35));
+    if (troughRejected) {
+      lows.add(Number(troughBar.low.toFixed(2)));
+    }
+  }
+
   return {
-    highs: highs.sort((a, b) => a - b),
-    lows: lows.sort((a, b) => b - a),
+    highs: Array.from(highs).sort((a, b) => a - b),
+    lows: Array.from(lows).sort((a, b) => b - a),
   };
 }
 
@@ -1672,16 +1707,18 @@ export function evaluateStrictMultiTimeframeStrategy(
       const stopDistance = Number((spotEntry - rawStop).toFixed(2));
       const validStop = stopDistance >= minStopDist && stopDistance <= maxStopDist;
 
-      // Single Take Profit: anchored to clear resistance if >= 1.5R and <= 2.8R, else 1.80R ATR structure target
+      // Single Take Profit: anchored to clear resistance if >= 1.55R and <= 2.8R, else 1.60R/1.80R ATR projection
       const minTarget = spotEntry + stopDistance * 1.55;
       const maxTarget = spotEntry + stopDistance * 2.8;
       const targetPool = Array.from(new Set([...spotResistances5m, ...majorResistances])).sort((a, b) => a - b);
       const structuralTarget = targetPool.find((r) => r >= minTarget && r <= maxTarget);
-      // Reject only if an untouched/unswept major 1H structural resistance wall blocks clear upside before 1.15R
+      // Reject if an untouched major 1H resistance wall blocks clear upside (1.40R in SURE, 1.15R in ANALYSIS)
+      const wallClearanceR = mode === 'SURE' ? 1.4 : 1.15;
       const blockingWall = macroWallResistances.find(
-        (r) => r > spotEntry + atr5mRaw * 0.85 && r < spotEntry + stopDistance * 1.15
+        (r) => r > spotEntry + atr5mRaw * 0.85 && r < spotEntry + stopDistance * wallClearanceR
       );
-      const singleTp = Number((structuralTarget ?? spotEntry + stopDistance * 1.8).toFixed(2));
+      const defaultRrMult = stopDistance > Math.max(8, atr5mRaw * 1.7) ? 1.6 : 1.8;
+      const singleTp = Number((structuralTarget ?? spotEntry + stopDistance * defaultRrMult).toFixed(2));
       const rrNum = stopDistance > 0 ? (singleTp - spotEntry) / stopDistance : 0;
       const rrValid = rrNum >= 1.5 && blockingWall == null;
 
@@ -1708,7 +1745,7 @@ export function evaluateStrictMultiTimeframeStrategy(
           rewardRiskRatio1: rrText,
           rewardRiskRatio2: rrText,
           methodology: `Single TP anchored to ${
-            structuralTarget ? `Spot resistance $${structuralTarget.toFixed(2)}` : '1.80R structural ATR projection'
+            structuralTarget ? `Spot resistance $${structuralTarget.toFixed(2)}` : `${defaultRrMult.toFixed(2)}R structural ATR projection`
           }; SL anchored below ${structuralSupport ? `sweep/support $${structuralSupport.toFixed(2)}` : '2.0×ATR(5m)'}.`,
         };
       }
@@ -1749,10 +1786,12 @@ export function evaluateStrictMultiTimeframeStrategy(
       const maxTarget = spotEntry - stopDistance * 2.8;
       const targetPool = Array.from(new Set([...spotSupports5m, ...majorSupports])).sort((a, b) => b - a);
       const structuralTarget = targetPool.find((s) => s <= minTarget && s >= maxTarget);
+      const wallClearanceR = mode === 'SURE' ? 1.4 : 1.15;
       const blockingWall = macroWallSupports.find(
-        (s) => s < spotEntry - atr5mRaw * 0.85 && s > spotEntry - stopDistance * 1.15
+        (s) => s < spotEntry - atr5mRaw * 0.85 && s > spotEntry - stopDistance * wallClearanceR
       );
-      const singleTp = Number((structuralTarget ?? spotEntry - stopDistance * 1.8).toFixed(2));
+      const defaultRrMult = stopDistance > Math.max(8, atr5mRaw * 1.7) ? 1.6 : 1.8;
+      const singleTp = Number((structuralTarget ?? spotEntry - stopDistance * defaultRrMult).toFixed(2));
       const rrNum = stopDistance > 0 ? (spotEntry - singleTp) / stopDistance : 0;
       const rrValid = rrNum >= 1.5 && blockingWall == null;
 
@@ -1779,7 +1818,7 @@ export function evaluateStrictMultiTimeframeStrategy(
           rewardRiskRatio1: rrText,
           rewardRiskRatio2: rrText,
           methodology: `Single TP anchored to ${
-            structuralTarget ? `Spot support $${structuralTarget.toFixed(2)}` : '1.80R structural ATR projection'
+            structuralTarget ? `Spot support $${structuralTarget.toFixed(2)}` : `${defaultRrMult.toFixed(2)}R structural ATR projection`
           }; SL anchored above ${structuralResistance ? `sweep/resistance $${structuralResistance.toFixed(2)}` : '2.0×ATR(5m)'}.`,
         };
       }

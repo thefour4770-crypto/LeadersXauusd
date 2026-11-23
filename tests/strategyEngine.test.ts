@@ -1142,3 +1142,64 @@ test('18. Gate 7 ignores minor 15M / swept 1H wicks while still blocking genuine
   assert.notEqual(resBlocked.evaluation.action, 'BUY');
 });
 
+test('19. Recent 1H shooting-star blow-off high blocks late BUY chase within 1.40R even before leftRight=3 pivot forms', () => {
+  const indicators = createAutoPerfectIndicators();
+  const bull = buildBullishDatasets(3780);
+  const price = bull.quote.mid;
+
+  // Turn the latest closed 1H bar (idx = length - 1) into a high-range shooting-star blow-off rejection
+  // whose upper wick is > 0.75x ATR(1H) and sits < 1.40R above current BUY entry (~$6 above Spot while 1.4R is ~$12+)
+  const c1H = bull.datasets.tf1H.candles.map((c) => ({ ...c }));
+  const lastIdx = c1H.length - 1;
+  const lastBar = c1H[lastIdx];
+  c1H[lastIdx] = {
+    ...lastBar,
+    low: Number(Math.min(lastBar.low, lastBar.open - 1.5).toFixed(2)),
+    high: Number((price + 5.8).toFixed(2)),
+  };
+
+  // Scale 5m bar volatility slightly so stop distance exceeds $8 and 1.40R clearance is > $5.8
+  const c5m = bull.datasets.tf5m.candles.map((c, idx) => {
+    if (idx < bull.datasets.tf5m.candles.length - 20) return c;
+    return {
+      ...c,
+      high: Number((c.high + 2.4).toFixed(2)),
+      low: Number((c.low - 2.4).toFixed(2)),
+    };
+  });
+
+  const resBlocked = evaluateStrictMultiTimeframeStrategy({
+    datasets: { ...bull.datasets, tf1H: makeDataset('1H', c1H), tf5m: makeDataset('5m', c5m) },
+    quote: bull.quote,
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+
+  assert.equal(resBlocked.evaluation.mandatoryGates[0].passed, true, 'Feed integrity must remain valid');
+  assert.equal(resBlocked.evaluation.mandatoryGates[6].passed, false);
+  assert.ok(
+    resBlocked.evaluation.mandatoryGates[6].detail.includes('Major 1H resistance'),
+    `Expected fresh 1H shooting-star high to trigger Major 1H resistance block, got: ${resBlocked.evaluation.mandatoryGates[6].detail}`
+  );
+  assert.notEqual(resBlocked.evaluation.action, 'BUY');
+  assert.equal(resBlocked.tradeLevels, undefined);
+
+  // When the blow-off peak is far enough overhead (> 1.40R away) and stopDistance > $8, TP scales to 1.60R instead of 1.80R
+  const c1HClean = bull.datasets.tf1H.candles.map((c) => ({ ...c }));
+  const resWideAllowed = evaluateStrictMultiTimeframeStrategy({
+    datasets: { ...bull.datasets, tf1H: makeDataset('1H', c1HClean), tf5m: makeDataset('5m', c5m) },
+    quote: bull.quote,
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+  assert.equal(resWideAllowed.evaluation.action, 'BUY', `Clean trend with wide stop should BUY; blockers: ${resWideAllowed.evaluation.blockers.join(' | ')}`);
+  assert.ok(resWideAllowed.tradeLevels!.riskPoints > 8, 'Expected wide stop > $8');
+  const rrActual =
+    (resWideAllowed.tradeLevels!.takeProfit1 - resWideAllowed.tradeLevels!.referencePrice) /
+    resWideAllowed.tradeLevels!.riskPoints;
+  assert.ok(rrActual >= 1.55 && rrActual <= 1.65, `Expected compact ~1.60R TP on wide stop, got ${rrActual.toFixed(2)}R`);
+});
+
+
