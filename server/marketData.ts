@@ -4,16 +4,16 @@ import type { Candle, CandleDataset, FreshnessStatus, MarketQuote, Timeframe } f
 
 const YAHOO_TIMEFRAME_MAP: Record<
   Timeframe,
-  { interval: string; range: string; maxLiveAgeMs: number; seconds: number }
+  { interval: string; range: string; maxLiveAgeMs: number; seconds: number; cacheTtlMs: number }
 > = {
-  '1m': { interval: '1m', range: '2d', maxLiveAgeMs: 180_000, seconds: 60 },
-  '5m': { interval: '5m', range: '5d', maxLiveAgeMs: 360_000, seconds: 300 },
-  '15m': { interval: '15m', range: '1mo', maxLiveAgeMs: 960_000, seconds: 900 },
-  '30m': { interval: '30m', range: '1mo', maxLiveAgeMs: 1_900_000, seconds: 1_800 },
-  '1H': { interval: '1h', range: '3mo', maxLiveAgeMs: 3_700_000, seconds: 3_600 },
-  '4H': { interval: '4h', range: '6mo', maxLiveAgeMs: 14_500_000, seconds: 14_400 },
-  '1D': { interval: '1d', range: '2y', maxLiveAgeMs: 90_000_000, seconds: 86_400 },
-  '1W': { interval: '1wk', range: '5y', maxLiveAgeMs: 605_000_000, seconds: 604_800 },
+  '1m': { interval: '1m', range: '2d', maxLiveAgeMs: 180_000, seconds: 60, cacheTtlMs: 45_000 },
+  '5m': { interval: '5m', range: '5d', maxLiveAgeMs: 360_000, seconds: 300, cacheTtlMs: 55_000 },
+  '15m': { interval: '15m', range: '1mo', maxLiveAgeMs: 960_000, seconds: 900, cacheTtlMs: 120_000 },
+  '30m': { interval: '30m', range: '1mo', maxLiveAgeMs: 1_900_000, seconds: 1_800, cacheTtlMs: 180_000 },
+  '1H': { interval: '1h', range: '3mo', maxLiveAgeMs: 3_700_000, seconds: 3_600, cacheTtlMs: 300_000 },
+  '4H': { interval: '4h', range: '6mo', maxLiveAgeMs: 14_500_000, seconds: 14_400, cacheTtlMs: 900_000 },
+  '1D': { interval: '1d', range: '2y', maxLiveAgeMs: 90_000_000, seconds: 86_400, cacheTtlMs: 1_800_000 },
+  '1W': { interval: '1wk', range: '5y', maxLiveAgeMs: 605_000_000, seconds: 604_800, cacheTtlMs: 3_600_000 },
 };
 
 interface CacheEntry<T> {
@@ -23,21 +23,24 @@ interface CacheEntry<T> {
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const LIVE_SPOT_1M_FILE = path.join(DATA_DIR, 'live-spot-1m.json');
+const YAHOO_CANDLE_CACHE_FILE = path.join(DATA_DIR, 'yahoo-candles-cache.json');
+const YAHOO_CHART_HOSTS = ['https://query1.finance.yahoo.com', 'https://query2.finance.yahoo.com'] as const;
 
 const quoteCache: { current: CacheEntry<MarketQuote> | null } = { current: null };
 const prevCloseCache: { current: CacheEntry<number> | null } = { current: null };
 const rawYahooCache = new Map<Timeframe, CacheEntry<CandleDataset>>();
+const inFlightYahooPromises = new Map<Timeframe, Promise<CandleDataset>>();
 
 // Real-time Swissquote Spot 1m bar accumulator persisted across restarts
 const liveSpot1mCandles = new Map<number, Candle>();
 const MAX_LIVE_SPOT_BARS = 1_440; // Keep last 24 hours of 1m live spot bars
 
 const QUOTE_TTL_MS = 400;
-const PREV_CLOSE_TTL_MS = 60_000;
-const YAHOO_CANDLE_TTL_MS = 10_000;
+const PREV_CLOSE_TTL_MS = 15 * 60_000;
 const COLLECTOR_ACTIVE_MS = 750;
 const COLLECTOR_IDLE_MS = 3_000;
 const COLLECTOR_IDLE_AFTER_MS = 120_000;
+const YAHOO_RATE_LIMIT_DEFAULT_MS = 60_000;
 
 let lastClientActivityAt = Date.now();
 let collectorTimer: ReturnType<typeof setTimeout> | null = null;
@@ -45,7 +48,11 @@ let collectorInFlight = false;
 let inFlightQuotePromise: Promise<MarketQuote> | null = null;
 let lastEmittedQuoteKey = '';
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
+let yahooPersistTimer: ReturnType<typeof setTimeout> | null = null;
 let spotStoreLoadPromise: Promise<void> | null = null;
+let yahooCacheLoadPromise: Promise<void> | null = null;
+let yahooRateLimitedUntilMs = 0;
+let yahooHostIdx = 0;
 const IS_TEST_ENV = Boolean(
   process.env.NODE_TEST_CONTEXT || process.argv.some((a) => a.includes('--test'))
 );
@@ -85,6 +92,60 @@ async function ensureSpotStoreLoaded(): Promise<void> {
     }
   })();
   return spotStoreLoadPromise;
+}
+
+async function ensureYahooCacheLoaded(): Promise<void> {
+  if (IS_TEST_ENV) return;
+  if (yahooCacheLoadPromise) return yahooCacheLoadPromise;
+  yahooCacheLoadPromise = (async () => {
+    try {
+      const raw = await fs.readFile(YAHOO_CANDLE_CACHE_FILE, 'utf8');
+      const parsed = JSON.parse(raw) as Record<string, CacheEntry<CandleDataset>>;
+      if (!parsed || typeof parsed !== 'object') return;
+      for (const [tf, entry] of Object.entries(parsed)) {
+        if (
+          tf in YAHOO_TIMEFRAME_MAP &&
+          entry &&
+          typeof entry.fetchedAt === 'number' &&
+          entry.data &&
+          Array.isArray(entry.data.candles) &&
+          entry.data.candles.length >= 30 &&
+          !rawYahooCache.has(tf as Timeframe)
+        ) {
+          rawYahooCache.set(tf as Timeframe, entry);
+        }
+      }
+    } catch {
+      // Cache file may not exist on first boot
+    }
+  })();
+  return yahooCacheLoadPromise;
+}
+
+function schedulePersistYahooCache(): void {
+  if (IS_TEST_ENV || yahooPersistTimer !== null) return;
+  yahooPersistTimer = setTimeout(async () => {
+    yahooPersistTimer = null;
+    try {
+      await fs.mkdir(DATA_DIR, { recursive: true });
+      const payload: Record<string, CacheEntry<CandleDataset>> = {};
+      for (const [tf, entry] of rawYahooCache.entries()) {
+        payload[tf] = {
+          fetchedAt: entry.fetchedAt,
+          data: {
+            ...entry.data,
+            candles: entry.data.candles.slice(-400),
+          },
+        };
+      }
+      const tmp = `${YAHOO_CANDLE_CACHE_FILE}.${Date.now()}.tmp`;
+      await fs.writeFile(tmp, JSON.stringify(payload), 'utf8');
+      await fs.rename(tmp, YAHOO_CANDLE_CACHE_FILE);
+    } catch {
+      // Non-fatal disk cache write error
+    }
+  }, 5_000);
+  yahooPersistTimer.unref?.();
 }
 
 function schedulePersistSpotCandles(): void {
@@ -213,17 +274,41 @@ async function fetchPreviousCloseCached(): Promise<number | undefined> {
   if (prevCloseCache.current && now - prevCloseCache.current.fetchedAt < PREV_CLOSE_TTL_MS) {
     return prevCloseCache.current.data;
   }
+
+  // Reuse 1D dataset close if already cached to avoid redundant Yahoo API traffic
+  const cached1D = rawYahooCache.get('1D')?.data;
+  if (cached1D && cached1D.candles.length >= 2) {
+    const prevBar = cached1D.candles[cached1D.candles.length - 2];
+    if (prevBar && prevBar.close > 0) {
+      prevCloseCache.current = { data: prevBar.close, fetchedAt: now };
+      return prevBar.close;
+    }
+  }
+
+  if (now < yahooRateLimitedUntilMs) {
+    return prevCloseCache.current?.data;
+  }
+
   try {
+    const host = YAHOO_CHART_HOSTS[yahooHostIdx % YAHOO_CHART_HOSTS.length];
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 5_000);
     const res = await fetch(
-      'https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1d&range=5d',
+      `${host}/v8/finance/chart/GC=F?interval=1d&range=5d`,
       {
-        headers: { 'User-Agent': 'Mozilla/5.0' },
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+          Accept: 'application/json',
+        },
         signal: controller.signal,
       }
     );
     clearTimeout(timer);
+    if (res.status === 429) {
+      yahooRateLimitedUntilMs = Date.now() + YAHOO_RATE_LIMIT_DEFAULT_MS;
+      yahooHostIdx = (yahooHostIdx + 1) % YAHOO_CHART_HOSTS.length;
+      return prevCloseCache.current?.data;
+    }
     if (!res.ok) return prevCloseCache.current?.data;
     const yJson = (await res.json()) as {
       chart?: { result?: Array<{ meta?: { chartPreviousClose?: number; previousClose?: number } }> };
@@ -357,7 +442,137 @@ export async function fetchLiveXauUsdQuote(options?: { internalCollector?: boole
   return inFlightQuotePromise;
 }
 
+function refreshDatasetFreshness(dataset: CandleDataset, nowMs = Date.now()): CandleDataset {
+  const lastCandleMs = dataset.candles[dataset.candles.length - 1]?.time
+    ? dataset.candles[dataset.candles.length - 1].time * 1000
+    : dataset.latestTimestamp;
+  const ageMs = Math.max(0, nowMs - Math.max(dataset.latestTimestamp, lastCandleMs));
+  let freshness: FreshnessStatus = 'LIVE';
+  if (ageMs > 180_000 && ageMs <= 4 * 24 * 3600 * 1000) {
+    freshness = 'DELAYED';
+  } else if (ageMs > 4 * 24 * 3600 * 1000) {
+    freshness = 'UNAVAILABLE';
+  }
+  return freshness === dataset.freshness ? dataset : { ...dataset, freshness };
+}
+
+function getStaleFallbackDataset(timeframe: Timeframe, maxFallbackAgeMs: number): CandleDataset | null {
+  const cached = rawYahooCache.get(timeframe);
+  if (!cached) return null;
+  if (Date.now() - cached.fetchedAt > maxFallbackAgeMs) return null;
+  const refreshed = refreshDatasetFreshness(cached.data);
+  return refreshed.freshness !== 'UNAVAILABLE' ? refreshed : null;
+}
+
+async function fetchYahooChartJson(
+  interval: string,
+  range: string
+): Promise<{
+  chart?: {
+    error?: { description?: string } | null;
+    result?: Array<{
+      meta?: {
+        symbol?: string;
+        regularMarketTime?: number;
+        dataGranularity?: string;
+      };
+      timestamp?: number[];
+      indicators?: {
+        quote?: Array<{
+          open?: Array<number | null>;
+          high?: Array<number | null>;
+          low?: Array<number | null>;
+          close?: Array<number | null>;
+          volume?: Array<number | null>;
+        }>;
+      };
+    }>;
+  };
+}> {
+  let lastError: Error | null = null;
+  const startHost = yahooHostIdx % YAHOO_CHART_HOSTS.length;
+
+  for (let attempt = 0; attempt < YAHOO_CHART_HOSTS.length; attempt++) {
+    const host = YAHOO_CHART_HOSTS[(startHost + attempt) % YAHOO_CHART_HOSTS.length];
+    const url = `${host}/v8/finance/chart/GC=F?interval=${interval}&range=${range}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 9_000);
+
+    try {
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent':
+            attempt === 0
+              ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+              : 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15',
+          Accept: 'application/json',
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+
+      if (res.status === 429) {
+        const retryAfterRaw = Number(res.headers.get('retry-after'));
+        const retryMs =
+          Number.isFinite(retryAfterRaw) && retryAfterRaw > 0
+            ? Math.min(300_000, Math.max(60_000, retryAfterRaw * 1000))
+            : YAHOO_RATE_LIMIT_DEFAULT_MS;
+        lastError = new Error('Market data API returned HTTP 429');
+        yahooHostIdx = (startHost + attempt + 1) % YAHOO_CHART_HOSTS.length;
+        // Brief pause before failing over to alternate Yahoo host
+        if (attempt === 0) {
+          await new Promise((r) => setTimeout(r, 350));
+          continue;
+        }
+        yahooRateLimitedUntilMs = Date.now() + retryMs;
+        break;
+      }
+
+      if (!res.ok) {
+        lastError = new Error(`Market data API returned HTTP ${res.status}`);
+        if (res.status >= 500 && attempt === 0) {
+          yahooHostIdx = (startHost + attempt + 1) % YAHOO_CHART_HOSTS.length;
+          continue;
+        }
+        break;
+      }
+
+      yahooHostIdx = (startHost + attempt) % YAHOO_CHART_HOSTS.length;
+      return (await res.json()) as {
+        chart?: {
+          error?: { description?: string } | null;
+          result?: Array<{
+            meta?: {
+              symbol?: string;
+              regularMarketTime?: number;
+              dataGranularity?: string;
+            };
+            timestamp?: number[];
+            indicators?: {
+              quote?: Array<{
+                open?: Array<number | null>;
+                high?: Array<number | null>;
+                low?: Array<number | null>;
+                close?: Array<number | null>;
+                volume?: Array<number | null>;
+              }>;
+            };
+          }>;
+        };
+      };
+    } catch (err) {
+      clearTimeout(timer);
+      lastError = err instanceof Error ? err : new Error('Market data fetch failed');
+      yahooHostIdx = (startHost + attempt + 1) % YAHOO_CHART_HOSTS.length;
+    }
+  }
+
+  throw lastError ?? new Error('Market data fetch failed');
+}
+
 async function fetchYahooCandlesBase(timeframe: Timeframe): Promise<CandleDataset> {
+  await ensureYahooCacheLoaded();
+
   const cfg = YAHOO_TIMEFRAME_MAP[timeframe];
   if (!cfg) {
     throw new Error(`Unsupported timeframe: ${timeframe}`);
@@ -365,47 +580,31 @@ async function fetchYahooCandlesBase(timeframe: Timeframe): Promise<CandleDatase
 
   const now = Date.now();
   const cached = rawYahooCache.get(timeframe);
-  if (cached && now - cached.fetchedAt < YAHOO_CANDLE_TTL_MS) {
-    return cached.data;
+  if (cached && now - cached.fetchedAt < cfg.cacheTtlMs) {
+    return refreshDatasetFreshness(cached.data, now);
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10_000);
-
-  try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=${cfg.interval}&range=${cfg.range}`;
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-
-    if (!res.ok) {
-      throw new Error(`Market data API returned HTTP ${res.status}`);
+  const maxStaleFallbackMs = Math.max(4 * 60 * 60_000, cfg.seconds * 1000 * 12);
+  if (now < yahooRateLimitedUntilMs) {
+    const staleDuringCooldown = getStaleFallbackDataset(timeframe, maxStaleFallbackMs);
+    if (staleDuringCooldown) {
+      return staleDuringCooldown;
     }
+    const spotDuringCooldown = await getPureSpotCandles(timeframe);
+    if (spotDuringCooldown && spotDuringCooldown.candles.length >= 30) {
+      return spotDuringCooldown;
+    }
+    throw new Error('Market data API returned HTTP 429 (cooldown active)');
+  }
 
-    const json = (await res.json()) as {
-      chart?: {
-        error?: { description?: string } | null;
-        result?: Array<{
-          meta?: {
-            symbol?: string;
-            regularMarketTime?: number;
-            dataGranularity?: string;
-          };
-          timestamp?: number[];
-          indicators?: {
-            quote?: Array<{
-              open?: Array<number | null>;
-              high?: Array<number | null>;
-              low?: Array<number | null>;
-              close?: Array<number | null>;
-              volume?: Array<number | null>;
-            }>;
-          };
-        }>;
-      };
-    };
+  const inFlight = inFlightYahooPromises.get(timeframe);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const task = (async (): Promise<CandleDataset> => {
+    try {
+      const json = await fetchYahooChartJson(cfg.interval, cfg.range);
 
     if (json?.chart?.error) {
       throw new Error(json.chart.error.description || 'Upstream chart error');
@@ -514,11 +713,26 @@ async function fetchYahooCandlesBase(timeframe: Timeframe): Promise<CandleDatase
       volumeNote,
     };
 
-    rawYahooCache.set(timeframe, { data: dataset, fetchedAt: now });
-    return dataset;
-  } finally {
-    clearTimeout(timer);
-  }
+      rawYahooCache.set(timeframe, { data: dataset, fetchedAt: Date.now() });
+      schedulePersistYahooCache();
+      return dataset;
+    } catch (err) {
+      const fallback = getStaleFallbackDataset(timeframe, maxStaleFallbackMs);
+      if (fallback) {
+        return fallback;
+      }
+      const spotFallback = await getPureSpotCandles(timeframe);
+      if (spotFallback && spotFallback.candles.length >= 30) {
+        return spotFallback;
+      }
+      throw err;
+    } finally {
+      inFlightYahooPromises.delete(timeframe);
+    }
+  })();
+
+  inFlightYahooPromises.set(timeframe, task);
+  return task;
 }
 
 export const TIMEFRAME_SECONDS: Record<Timeframe, number> = {
@@ -694,7 +908,13 @@ export async function fetchCandles(timeframe: Timeframe): Promise<CandleDataset>
   }
 
   const [baseDataset, liveQuote] = await Promise.all([
-    fetchYahooCandlesBase(timeframe),
+    fetchYahooCandlesBase(timeframe).catch(async (err) => {
+      const spotFallback = await getPureSpotCandles(timeframe);
+      if (spotFallback && spotFallback.candles.length >= 20) {
+        return spotFallback;
+      }
+      throw err;
+    }),
     fetchLiveXauUsdQuote(),
   ]);
 
@@ -803,5 +1023,16 @@ export async function fetchCandles(timeframe: Timeframe): Promise<CandleDataset>
       ? 'Yahoo Finance GC=F + Live Swissquote Spot XAU/USD'
       : baseDataset.candleSource,
   };
+}
+
+export function __resetMarketDataCachesForTest(): void {
+  if (!IS_TEST_ENV) return;
+  rawYahooCache.clear();
+  inFlightYahooPromises.clear();
+  liveSpot1mCandles.clear();
+  quoteCache.current = null;
+  prevCloseCache.current = null;
+  yahooRateLimitedUntilMs = 0;
+  yahooHostIdx = 0;
 }
 

@@ -69,41 +69,63 @@ export class NewsBlockedError extends Error {
 
 function isFreshSpotDataset(
   ds: CandleDataset | null,
-  timeframe: '1m' | '5m',
+  timeframe: '1m' | '5m' | '15m',
   maxClosedAgeSec: number,
-  nowSec = Math.floor(Date.now() / 1000)
+  nowSec = Math.floor(Date.now() / 1000),
+  minClosedBars = 60
 ): ds is CandleDataset {
   if (!ds || ds.freshness !== 'LIVE') return false;
   const { closed } = sliceClosedCandles(ds.candles, timeframe, nowSec);
-  if (closed.length < 60) return false;
+  if (closed.length < minClosedBars) return false;
   const lastClosed = closed[closed.length - 1];
   return Boolean(lastClosed) && nowSec - lastClosed.time <= maxClosedAgeSec;
 }
 
 export async function fetchStrategyDatasets(): Promise<StrategyDatasetsInput> {
-  const [spot1m, spot5m, f1H, f15m, f5m, f1m] = await Promise.all([
+  const [spot1m, spot5m, spot15m] = await Promise.all([
     getPureSpotCandles('1m'),
     getPureSpotCandles('5m'),
-    fetchPureFuturesCandles('1H'),
-    fetchPureFuturesCandles('15m'),
-    fetchPureFuturesCandles('5m'),
-    fetchPureFuturesCandles('1m'),
+    getPureSpotCandles('15m'),
   ]);
 
   const nowSec = Math.floor(Date.now() / 1000);
-  // Use pure Spot XAU/USD 1m & 5m streams only when >= 60 closed bars exist AND the latest closed bar is fresh
-  const tf1m = isFreshSpotDataset(spot1m, '1m', Math.max(240, TIMEFRAME_SECONDS['1m'] * 3), nowSec)
-    ? spot1m
-    : f1m;
-  const tf5m = isFreshSpotDataset(spot5m, '5m', TIMEFRAME_SECONDS['5m'] * 3, nowSec)
-    ? spot5m
-    : f5m;
+  const max1mAge = Math.max(240, TIMEFRAME_SECONDS['1m'] * 3);
+  const max5mAge = TIMEFRAME_SECONDS['5m'] * 3;
+  const max15mAge = TIMEFRAME_SECONDS['15m'] * 3;
+
+  const hasFresh1mSpot = isFreshSpotDataset(spot1m, '1m', max1mAge, nowSec, 60);
+  const hasFresh5mSpot = isFreshSpotDataset(spot5m, '5m', max5mAge, nowSec, 60);
+  const hasFresh15mSpot = isFreshSpotDataset(spot15m, '15m', max15mAge, nowSec, 30);
+
+  const [f1H, f15m, f5m, f1m] = await Promise.all([
+    fetchPureFuturesCandles('1H'),
+    fetchPureFuturesCandles('15m').catch((err) => {
+      if (hasFresh15mSpot && spot15m) return spot15m;
+      throw err;
+    }),
+    hasFresh5mSpot && spot5m
+      ? Promise.resolve(spot5m)
+      : fetchPureFuturesCandles('5m').catch((err) => {
+          if (isFreshSpotDataset(spot5m, '5m', max5mAge, nowSec, 30) && spot5m) {
+            return spot5m;
+          }
+          throw err;
+        }),
+    hasFresh1mSpot && spot1m
+      ? Promise.resolve(spot1m)
+      : fetchPureFuturesCandles('1m').catch((err) => {
+          if (isFreshSpotDataset(spot1m, '1m', max1mAge, nowSec, 30) && spot1m) {
+            return spot1m;
+          }
+          throw err;
+        }),
+  ]);
 
   return {
     tf1H: f1H,
     tf15m: f15m,
-    tf5m,
-    tf1m,
+    tf5m: f5m,
+    tf1m: f1m,
   };
 }
 

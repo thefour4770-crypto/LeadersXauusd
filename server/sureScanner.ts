@@ -45,10 +45,20 @@ type SureSignalListener = (event: {
 
 const listeners = new Set<SureSignalListener>();
 let scannerTimer: NodeJS.Timeout | null = null;
+let unavailableRetryTimer: NodeJS.Timeout | null = null;
 let quoteUnsubscribe: (() => void) | null = null;
 let inFlightScan: Promise<SureSignalScanStatus> | null = null;
 let outcomeCheckPromise: Promise<boolean> | null = null;
 let pendingOutcomeCheck: { price: number; nowMs: number } | null = null;
+
+function scheduleFastRecoveryScan(delayMs = 20_000): void {
+  if (unavailableRetryTimer !== null) return;
+  unavailableRetryTimer = setTimeout(() => {
+    unavailableRetryTimer = null;
+    void runSureSignalScan();
+  }, delayMs);
+  unavailableRetryTimer.unref?.();
+}
 
 let latestStatus: SureSignalScanStatus = {
   scanning: false,
@@ -573,11 +583,19 @@ export async function runSureSignalScan(): Promise<SureSignalScanStatus> {
         ? cooldownBlockedReason
         : `SCANNING FOR HIGH-QUALITY SETUP — ${evaluation.blockers[0] ?? `Score ${evaluation.totalScore}/100 (< 90/100 SURE minimum)`}`;
 
+      if (marketState === 'UNAVAILABLE' && !activeAfter) {
+        scheduleFastRecoveryScan(20_000);
+      }
+
       latestStatus = {
         scanning: false,
         tradeLocked: Boolean(activeAfter),
         lastScannedAt: new Date(scanStartedMs).toISOString(),
-        nextScanAt: activeAfter ? null : nextScanIso,
+        nextScanAt: activeAfter
+          ? null
+          : marketState === 'UNAVAILABLE'
+          ? new Date(Date.now() + 20_000).toISOString()
+          : nextScanIso,
         scanIntervalMs: SURE_SCAN_INTERVAL_MS,
         monitoringMode,
         marketState,
@@ -607,22 +625,31 @@ export async function runSureSignalScan(): Promise<SureSignalScanStatus> {
     } catch (err) {
       const history = await listSureSignals().catch(() => []);
       const active = findActiveTrade(history);
+      if (!active) {
+        scheduleFastRecoveryScan(20_000);
+      }
       latestStatus = {
         ...latestStatus,
         scanning: false,
         tradeLocked: Boolean(active),
         lastScannedAt: new Date(scanStartedMs).toISOString(),
-        nextScanAt: nextScanIso,
+        nextScanAt: active ? null : new Date(Date.now() + 20_000).toISOString(),
         monitoringMode: 'UNAVAILABLE',
         marketState: active
           ? active.direction === 'BUY'
             ? 'SURE_BUY'
             : 'SURE_SELL'
           : 'UNAVAILABLE',
+        latestConfidencePct: active ? latestStatus.latestConfidencePct : 0,
+        latestScore: active ? latestStatus.latestScore : 0,
+        latestSetupScore: active ? latestStatus.latestSetupScore : 0,
+        latestAdx: active ? latestStatus.latestAdx : null,
         reason:
           err instanceof Error
             ? `DATA UNAVAILABLE — ${err.message}`
             : 'DATA UNAVAILABLE — Awaiting live market feed.',
+        checks: active ? latestStatus.checks : [],
+        strategyEvaluation: active ? latestStatus.strategyEvaluation : undefined,
         activeSignal: pickSpotlightSignal(history),
         history,
         stats: computeSureHistoryStats(history),

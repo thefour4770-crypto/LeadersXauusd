@@ -418,14 +418,18 @@ export const SureSignalsView = memo(function SureSignalsView({
                 <span>
                   Setup Score:{' '}
                   <span className="text-[#F5D061] font-semibold">
-                    {sureStatus ? `${sureStatus.latestSetupScore ?? sureStatus.latestConfidencePct}/100` : '—'}
+                    {sureStatus && !isFeedUnavailable
+                      ? `${sureStatus.latestSetupScore ?? sureStatus.latestConfidencePct}/100`
+                      : '—'}
                   </span>
                 </span>
                 <span>·</span>
                 <span>
                   ADX(14):{' '}
                   <span className="text-zinc-200 font-semibold">
-                    {sureStatus?.latestAdx != null ? sureStatus.latestAdx.toFixed(1) : '—'}
+                    {!isFeedUnavailable && sureStatus?.latestAdx != null
+                      ? sureStatus.latestAdx.toFixed(1)
+                      : '—'}
                   </span>
                 </span>
               </>
@@ -734,9 +738,11 @@ export const SureSignalsView = memo(function SureSignalsView({
                 ? 'DATA UNAVAILABLE'
                 : 'SCANNING FOR HIGH-QUALITY SETUP'}
             </span>
-            <span className="text-xs font-mono text-zinc-400">
-              {passedCount} / {checks.length || 8} strict SURE gates passed
-            </span>
+            {!isMarketClosed && !isFeedUnavailable && (
+              <span className="text-xs font-mono text-zinc-400">
+                {passedCount} / {checks.length || 8} strict SURE gates passed
+              </span>
+            )}
           </div>
           <p className="text-sm text-zinc-200 leading-relaxed">
             {sureStatus?.reason || 'SCANNING FOR HIGH-QUALITY SETUP'}

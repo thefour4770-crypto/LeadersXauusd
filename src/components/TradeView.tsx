@@ -230,6 +230,8 @@ export const TradeView = memo(function TradeView({
   const stageTimersRef = useRef<number[]>([]);
   const datasetRef = useRef<CandleDataset | null>(null);
   datasetRef.current = dataset;
+  const sentimentRef = useRef<MarketSentiment24h | null>(null);
+  sentimentRef.current = sentiment;
   const [phoneAlertsEnabled, setPhoneAlertsEnabled] = useState<boolean>(() => isPhoneAlertsEnabled());
   const [notificationPerm, setNotificationPerm] = useState<NotificationPermissionState>(() =>
     getNotificationPermissionState()
@@ -307,7 +309,9 @@ export const TradeView = memo(function TradeView({
       setChartError(null);
     } catch (err) {
       if (!mountedRef.current) return;
-      setChartError(err instanceof Error ? err.message : 'Unable to load XAUUSD chart data');
+      if (!datasetRef.current || datasetRef.current.timeframe !== tf) {
+        setChartError(err instanceof Error ? err.message : 'Unable to load XAUUSD chart data');
+      }
     } finally {
       if (mountedRef.current) setChartLoading(false);
     }
@@ -325,7 +329,9 @@ export const TradeView = memo(function TradeView({
       setSentimentError(null);
     } catch (err) {
       if (!mountedRef.current) return;
-      setSentimentError(err instanceof Error ? err.message : 'DATA UNAVAILABLE');
+      if (!sentimentRef.current) {
+        setSentimentError(err instanceof Error ? err.message : 'DATA UNAVAILABLE');
+      }
     } finally {
       if (mountedRef.current) setSentimentLoading(false);
     }
@@ -338,7 +344,7 @@ export const TradeView = memo(function TradeView({
     if (!isActive || showingReport) return;
     const needsSpinner = !datasetRef.current || datasetRef.current.timeframe !== activeChartTimeframe;
     void loadChartData(activeChartTimeframe, needsSpinner);
-    const pollMs = showChart || leaderViewOpen ? 5_000 : 30_000;
+    const pollMs = showChart || leaderViewOpen ? 20_000 : 60_000;
     const interval = setInterval(() => {
       if (!document.hidden) {
         void loadChartData(activeChartTimeframe, false);
@@ -353,7 +359,7 @@ export const TradeView = memo(function TradeView({
     onRefreshQuote();
   }, [isActive, showChart, leaderViewOpen, onRefreshQuote]);
 
-  // Load 24h Market Sentiment & poll every 30s only while TRADE tab is active
+  // Load 24h Market Sentiment & poll every 60s only while TRADE tab is active
   useEffect(() => {
     if (!isActive || showingReport) return;
     void loadSentiment();
@@ -361,7 +367,7 @@ export const TradeView = memo(function TradeView({
       if (!document.hidden) {
         void loadSentiment();
       }
-    }, 30_000);
+    }, 60_000);
     return () => clearInterval(interval);
   }, [loadSentiment, isActive, showingReport]);
 
