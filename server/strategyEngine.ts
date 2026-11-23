@@ -324,13 +324,22 @@ function detectSweepAndRetest5m(
     const lowerWick = Math.min(c.open, c.close) - c.low;
     const upperWick = c.high - Math.max(c.open, c.close);
 
-    // Swept below local prior swing low (or nearby support) and closed/reclaimed back above it
-    const supportCandidates = [priorLow, nearestSupport].filter((v): v is number => v != null);
+    // Swept below local prior swing low (or nearby support/demand edge) and closed/reclaimed back above it
+    const supportCandidates = Array.from(
+      new Set(
+        [
+          priorLow,
+          refSwingLows.length > 1 ? refSwingLows[refSwingLows.length - 2] : undefined,
+          nearestSupport,
+          demandZone?.[0],
+        ].filter((v): v is number => v != null)
+      )
+    );
     for (const supportRef of supportCandidates) {
       if (
-        c.low < supportRef - atr * 0.05 &&
+        c.low < supportRef - atr * 0.02 &&
         (c.close > supportRef || nextClose > supportRef) &&
-        lowerWick >= atr * 0.15
+        lowerWick >= atr * 0.12
       ) {
         bullishSweep = true;
         bullSweepIdx = i;
@@ -339,13 +348,22 @@ function detectSweepAndRetest5m(
       }
     }
 
-    // Swept above local prior swing high (or nearby resistance) and closed/reclaimed back below it
-    const resistanceCandidates = [priorHigh, nearestResistance].filter((v): v is number => v != null);
+    // Swept above local prior swing high (or nearby resistance/supply edge) and closed/reclaimed back below it
+    const resistanceCandidates = Array.from(
+      new Set(
+        [
+          priorHigh,
+          refSwingHighs.length > 1 ? refSwingHighs[refSwingHighs.length - 2] : undefined,
+          nearestResistance,
+          supplyZone?.[1],
+        ].filter((v): v is number => v != null)
+      )
+    );
     for (const resRef of resistanceCandidates) {
       if (
-        c.high > resRef + atr * 0.05 &&
+        c.high > resRef + atr * 0.02 &&
         (c.close < resRef || nextClose < resRef) &&
-        upperWick >= atr * 0.15
+        upperWick >= atr * 0.12
       ) {
         bearishSweep = true;
         bearSweepIdx = i;
@@ -466,11 +484,19 @@ function validateFeedIntegrity(params: {
     { key: 'tf1m', ds: datasets.tf1m, candles: closedSets.tf1m },
   ];
 
+  const lastClosed15m = closedSets.tf15m[closedSets.tf15m.length - 1];
+  const intradaySessionActive =
+    quote.freshness === 'LIVE' &&
+    lastClosed15m != null &&
+    nowSec - lastClosed15m.time <= 2_700;
+
   for (const item of entries) {
     const isSpotStream = item.ds.candleSource.toLowerCase().includes('spot');
     const tfSec = TIMEFRAME_SECONDS[item.ds.timeframe];
     const maxDelaySec = isSpotStream
       ? Math.max(maxSpotCandleLagSec, tfSec * 3)
+      : item.ds.timeframe === '1H' && intradaySessionActive
+      ? Math.max(maxFuturesLagSec, tfSec * 4 + 1_200)
       : Math.max(maxFuturesLagSec, tfSec * 2 + 1_200);
 
     if (item.candles.length < 30) {
@@ -1062,9 +1088,9 @@ export function evaluateStrictMultiTimeframeStrategy(
   const longTermBull1H = (ema200_1H == null || price1H > ema200_1H) && (sma200_1H == null || price1H > sma200_1H);
   const longTermBear1H = (ema200_1H == null || price1H < ema200_1H) && (sma200_1H == null || price1H < sma200_1H);
 
-  // Deduplicated Trend Cluster for 1H: EMA + SMA + Supertrend agree as ONE condition
-  const bullCluster1H = (emaBull1H || smaBull1H) && stDir1H > 0;
-  const bearCluster1H = (emaBear1H || smaBear1H) && stDir1H < 0;
+  // Deduplicated Trend Cluster for 1H: Supertrend + MA alignment OR dual EMA+SMA stack alignment
+  const bullCluster1H = ((emaBull1H || smaBull1H) && stDir1H > 0) || (emaBull1H && smaBull1H);
+  const bearCluster1H = ((emaBear1H || smaBear1H) && stDir1H < 0) || (emaBear1H && smaBear1H);
   const fullClusterBull1H = emaBull1H && smaBull1H && stDir1H > 0 && longTermBull1H;
   const fullClusterBear1H = emaBear1H && smaBear1H && stDir1H < 0 && longTermBear1H;
 
@@ -1400,7 +1426,7 @@ export function evaluateStrictMultiTimeframeStrategy(
   const futuresSpotDriftOk =
     mode === 'ANALYSIS' ||
     !datasets.tf1m.candleSource.includes('GC=F') ||
-    Math.abs(spotEntryProbe - spot1mClose) <= atr5mRaw * 1.35;
+    Math.abs(spotEntryProbe - spot1mClose) <= atr5mRaw * 2.0;
 
   const confirmed1m =
     bias1H !== 'NEUTRAL' &&

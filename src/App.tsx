@@ -161,10 +161,12 @@ export default function App() {
     try {
       const res = await fetch('/api/reports');
       if (!res.ok) return;
-      const json = await res.json();
-      if (Array.isArray(json.reports)) {
+      const json = await res.json().catch(() => null);
+      if (json && Array.isArray(json.reports)) {
         setReports(json.reports);
       }
+    } catch {
+      // Transient network errors (e.g. offline or server restart) should not crash UI
     } finally {
       setReportsLoading(false);
     }
@@ -250,10 +252,12 @@ export default function App() {
     try {
       const res = await fetch('/api/sure-signals');
       if (!res.ok) return;
-      const json = await res.json();
-      if (json.sureStatus) {
+      const json = await res.json().catch(() => null);
+      if (json?.sureStatus) {
         applyIncomingSureStatus(json.sureStatus as SureSignalScanStatus);
       }
+    } catch {
+      // Ignore transient network errors; SSE / fallback poll retries automatically
     } finally {
       setSureLoading(false);
     }
@@ -261,22 +265,26 @@ export default function App() {
 
   const handleDeleteSureSignal = useCallback(
     async (id: string) => {
-      const res = await fetch(`/api/sure-signals/${encodeURIComponent(id)}`, {
-        method: 'DELETE',
-      });
-      if (res.ok) {
-        const json = await res.json().catch(() => ({}));
-        if (json.sureStatus) {
-          applyIncomingSureStatus(json.sureStatus as SureSignalScanStatus);
-        } else {
+      try {
+        const res = await fetch(`/api/sure-signals/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+        });
+        if (res.ok) {
+          const json = await res.json().catch(() => ({}));
+          if (json.sureStatus) {
+            applyIncomingSureStatus(json.sureStatus as SureSignalScanStatus);
+          } else {
+            setSureStatus((prev) =>
+              prev ? { ...prev, history: prev.history.filter((h) => h.id !== id) } : prev
+            );
+          }
+        } else if (res.status === 404) {
           setSureStatus((prev) =>
             prev ? { ...prev, history: prev.history.filter((h) => h.id !== id) } : prev
           );
         }
-      } else if (res.status === 404) {
-        setSureStatus((prev) =>
-          prev ? { ...prev, history: prev.history.filter((h) => h.id !== id) } : prev
-        );
+      } catch {
+        // Ignore transient network error while deleting SURE signal
       }
     },
     [applyIncomingSureStatus]
@@ -488,9 +496,13 @@ export default function App() {
   }, []);
 
   const handleDeleteReport = useCallback(async (id: string) => {
-    const res = await fetch(`/api/reports/${encodeURIComponent(id)}`, { method: 'DELETE' });
-    if (res.ok || res.status === 404) {
-      setReports((prev) => prev.filter((r) => r.id !== id));
+    try {
+      const res = await fetch(`/api/reports/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (res.ok || res.status === 404) {
+        setReports((prev) => prev.filter((r) => r.id !== id));
+      }
+    } catch {
+      // Ignore transient network error while deleting report
     }
   }, []);
 

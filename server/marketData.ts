@@ -45,43 +45,46 @@ let collectorInFlight = false;
 let inFlightQuotePromise: Promise<MarketQuote> | null = null;
 let lastEmittedQuoteKey = '';
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
-let spotStoreLoaded = false;
+let spotStoreLoadPromise: Promise<void> | null = null;
 const IS_TEST_ENV = Boolean(
   process.env.NODE_TEST_CONTEXT || process.argv.some((a) => a.includes('--test'))
 );
 
 async function ensureSpotStoreLoaded(): Promise<void> {
-  if (spotStoreLoaded) return;
-  spotStoreLoaded = true;
-  try {
-    const raw = await fs.readFile(LIVE_SPOT_1M_FILE, 'utf8');
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return;
-    const cutoff = Math.floor(Date.now() / 1000) - MAX_LIVE_SPOT_BARS * 60;
-    for (const item of parsed) {
-      if (
-        item &&
-        typeof item.time === 'number' &&
-        item.time >= cutoff &&
-        typeof item.open === 'number' &&
-        typeof item.high === 'number' &&
-        typeof item.low === 'number' &&
-        typeof item.close === 'number' &&
-        item.open > 0
-      ) {
-        liveSpot1mCandles.set(item.time, {
-          time: item.time,
-          open: Number(item.open.toFixed(2)),
-          high: Number(item.high.toFixed(2)),
-          low: Number(item.low.toFixed(2)),
-          close: Number(item.close.toFixed(2)),
-          volume: 0,
-        });
+  if (spotStoreLoadPromise) return spotStoreLoadPromise;
+  spotStoreLoadPromise = (async () => {
+    try {
+      const raw = await fs.readFile(LIVE_SPOT_1M_FILE, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return;
+      const cutoff = Math.floor(Date.now() / 1000) - MAX_LIVE_SPOT_BARS * 60;
+      for (const item of parsed) {
+        if (
+          item &&
+          typeof item.time === 'number' &&
+          item.time >= cutoff &&
+          typeof item.open === 'number' &&
+          typeof item.high === 'number' &&
+          typeof item.low === 'number' &&
+          typeof item.close === 'number' &&
+          item.open > 0 &&
+          !liveSpot1mCandles.has(item.time)
+        ) {
+          liveSpot1mCandles.set(item.time, {
+            time: item.time,
+            open: Number(item.open.toFixed(2)),
+            high: Number(item.high.toFixed(2)),
+            low: Number(item.low.toFixed(2)),
+            close: Number(item.close.toFixed(2)),
+            volume: 0,
+          });
+        }
       }
+    } catch {
+      // Store file may not exist yet on first run
     }
-  } catch {
-    // Store file may not exist yet on first run
-  }
+  })();
+  return spotStoreLoadPromise;
 }
 
 function schedulePersistSpotCandles(): void {
@@ -89,6 +92,7 @@ function schedulePersistSpotCandles(): void {
   persistTimer = setTimeout(async () => {
     persistTimer = null;
     try {
+      await ensureSpotStoreLoaded();
       await fs.mkdir(DATA_DIR, { recursive: true });
       const sorted = Array.from(liveSpot1mCandles.values())
         .sort((a, b) => a.time - b.time)
@@ -237,6 +241,7 @@ async function fetchPreviousCloseCached(): Promise<number | undefined> {
 }
 
 export async function fetchLiveXauUsdQuote(options?: { internalCollector?: boolean }): Promise<MarketQuote> {
+  await ensureSpotStoreLoaded();
   if (!options?.internalCollector) {
     touchLiveSpotCollector();
   }
@@ -462,6 +467,15 @@ async function fetchYahooCandlesBase(timeframe: Timeframe): Promise<CandleDatase
     }
 
     const candles = Array.from(byTime.values()).sort((a, b) => a.time - b.time);
+    // Drop Yahoo Finance's partial trailing regularMarketTime 0-volume snapshot bar
+    // so closed-bar volume/body indicators aren't corrupted by a 0-volume snapshot stub.
+    if (isIntraday && candles.length > 35) {
+      const tailLast = candles[candles.length - 1];
+      const prevThreeHaveVol = candles.slice(-4, -1).every((c) => c.volume > 0);
+      if (tailLast.volume === 0 && prevThreeHaveVol) {
+        candles.pop();
+      }
+    }
     if (candles.length < 30) {
       throw new Error(`Insufficient valid candles (${candles.length}) for ${timeframe}`);
     }
