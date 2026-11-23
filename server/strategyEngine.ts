@@ -899,6 +899,26 @@ export function isGoldMarketWeekendClosed(nowMs = Date.now()): boolean {
   return false;
 }
 
+/**
+ * Prevents fresh SURE entries right before weekend market close (Friday >= 18:30 UTC,
+ * which risks holding through a 48h weekend gap) or during thin daily rollover hours (21:45–23:15 UTC).
+ */
+export function getSureSessionLiquidityBlockReason(nowMs = Date.now()): string | null {
+  const d = new Date(nowMs);
+  const day = d.getUTCDay();
+  const minsUtc = d.getUTCHours() * 60 + d.getUTCMinutes();
+  if (day === 5 && minsUtc >= 18 * 60 + 30) {
+    return 'Pre-weekend risk window (Friday >= 18:30 UTC) — fresh SURE entries paused to avoid 48h weekend gap risk.';
+  }
+  if (minsUtc >= 21 * 60 + 45 && minsUtc <= 23 * 60 + 15) {
+    return 'Daily rollover / low-liquidity window (21:45–23:15 UTC) — awaiting tight spread & normal volume.';
+  }
+  if (day === 0 && minsUtc < 23 * 60 + 30) {
+    return 'Sunday market-open stabilization window — awaiting initial liquidity & clean candle formation.';
+  }
+  return null;
+}
+
 function scoreCategoryFromScore(score: number): SetupScoreCategory {
   if (score >= 85) return 'STRONG SIGNAL';
   if (score >= 75) return 'VALID SIGNAL';
@@ -1078,7 +1098,15 @@ export function evaluateStrictMultiTimeframeStrategy(
   const adxVal1H = lastNonNull(adx1H.adx).value;
   const plusDI1H = lastNonNull(adx1H.plusDI).value;
   const minusDI1H = lastNonNull(adx1H.minusDI).value;
+  const atr1H = getLatestAtrSafe(closed1H, 14);
+  const emaDist1HInAtr =
+    ema21_1H != null && atr1H != null && atr1H > 0 ? Math.abs(price1H - ema21_1H) / atr1H : 0;
+  const climaxExhausted1H = mode === 'SURE' && emaDist1HInAtr > 3.8;
 
+  const emaFastBull1H =
+    ema9_1H != null && ema21_1H != null && price1H > ema9_1H && ema9_1H > ema21_1H;
+  const emaFastBear1H =
+    ema9_1H != null && ema21_1H != null && price1H < ema9_1H && ema9_1H < ema21_1H;
   const emaBull1H =
     ema9_1H != null && ema21_1H != null && ema50_1H != null && price1H > ema21_1H && ema9_1H > ema21_1H && ema21_1H >= ema50_1H;
   const emaBear1H =
@@ -1088,9 +1116,9 @@ export function evaluateStrictMultiTimeframeStrategy(
   const longTermBull1H = (ema200_1H == null || price1H > ema200_1H) && (sma200_1H == null || price1H > sma200_1H);
   const longTermBear1H = (ema200_1H == null || price1H < ema200_1H) && (sma200_1H == null || price1H < sma200_1H);
 
-  // Deduplicated Trend Cluster for 1H: Supertrend + MA alignment OR dual EMA+SMA stack alignment
-  const bullCluster1H = ((emaBull1H || smaBull1H) && stDir1H > 0) || (emaBull1H && smaBull1H);
-  const bearCluster1H = ((emaBear1H || smaBear1H) && stDir1H < 0) || (emaBear1H && smaBear1H);
+  // Deduplicated Trend Cluster for 1H: Supertrend + MA alignment (including fast EMA 9>21 stack) OR dual EMA+SMA stack alignment
+  const bullCluster1H = ((emaBull1H || smaBull1H || emaFastBull1H) && stDir1H > 0) || (emaBull1H && smaBull1H);
+  const bearCluster1H = ((emaBear1H || smaBear1H || emaFastBear1H) && stDir1H < 0) || (emaBear1H && smaBear1H);
   const fullClusterBull1H = emaBull1H && smaBull1H && stDir1H > 0 && longTermBull1H;
   const fullClusterBear1H = emaBear1H && smaBear1H && stDir1H < 0 && longTermBear1H;
 
@@ -1118,7 +1146,15 @@ export function evaluateStrictMultiTimeframeStrategy(
 
   const trend1H: Trend1HSummary = {
     bias: bias1H,
-    emaAlignment: emaBull1H ? '9 > 21 >= 50 Bullish' : emaBear1H ? '9 < 21 <= 50 Bearish' : 'Mixed/Flat',
+    emaAlignment: emaBull1H
+      ? '9 > 21 >= 50 Bullish'
+      : emaBear1H
+      ? '9 < 21 <= 50 Bearish'
+      : emaFastBull1H
+      ? 'Price > EMA9 > EMA21 (Bullish)'
+      : emaFastBear1H
+      ? 'Price < EMA9 < EMA21 (Bearish)'
+      : 'Mixed/Flat',
     smaAlignment: smaBull1H ? 'Price > SMA20 >= SMA50' : smaBear1H ? 'Price < SMA20 <= SMA50' : 'Mixed/Flat',
     supertrendDir: stDir1H > 0 ? 'BULLISH' : stDir1H < 0 ? 'BEARISH' : 'NEUTRAL',
     adxValue: adxVal1H != null ? Number(adxVal1H.toFixed(1)) : null,
@@ -1155,9 +1191,13 @@ export function evaluateStrictMultiTimeframeStrategy(
       : `Healthy Envelope (${Math.round(bbPos15m * 100)}%B)`;
 
   const agreesWith1H = bias1H !== 'NEUTRAL' && struct15m.direction === bias1H;
+  const opposingChoch15m =
+    (bias1H === 'BULLISH' && struct15m.chochDetected === 'BEARISH') ||
+    (bias1H === 'BEARISH' && struct15m.chochDetected === 'BULLISH');
   const hasBosOrChoch15m =
-    (bias1H === 'BULLISH' && (struct15m.bosDetected === 'BULLISH' || struct15m.chochDetected === 'BULLISH')) ||
-    (bias1H === 'BEARISH' && (struct15m.bosDetected === 'BEARISH' || struct15m.chochDetected === 'BEARISH'));
+    !opposingChoch15m &&
+    ((bias1H === 'BULLISH' && (struct15m.bosDetected === 'BULLISH' || struct15m.chochDetected === 'BULLISH')) ||
+      (bias1H === 'BEARISH' && (struct15m.bosDetected === 'BEARISH' || struct15m.chochDetected === 'BEARISH')));
 
   const rsi15mMinBull = mode === 'SURE' ? 45 : 44;
   const rsi15mMaxBull = mode === 'SURE' ? 74 : 78;
@@ -1278,7 +1318,7 @@ export function evaluateStrictMultiTimeframeStrategy(
       (bias1H === 'BULLISH'
         ? (rsi5m == null || (rsi5m >= 40 && rsi5m <= 74)) && bbPos5m <= 0.94
         : bias1H === 'BEARISH'
-        ? (rsi5m == null || (rsi5m >= 28 && rsi5m <= 60)) && bbPos5m >= 0.06
+        ? (rsi5m == null || (rsi5m >= 38 && rsi5m <= 60)) && bbPos5m >= 0.06
         : false));
 
   const retestTouchTol = atr5mRaw * 0.18;
@@ -1384,9 +1424,17 @@ export function evaluateStrictMultiTimeframeStrategy(
 
   const barRange1m = Math.max(0.01, lastClosed1m.high - lastClosed1m.low);
   const bodyRatio1m = Math.abs(lastClosed1m.close - lastClosed1m.open) / barRange1m;
+  const upperWickRatio1m = (lastClosed1m.high - Math.max(lastClosed1m.open, lastClosed1m.close)) / barRange1m;
+  const lowerWickRatio1m = (Math.min(lastClosed1m.open, lastClosed1m.close) - lastClosed1m.low) / barRange1m;
   const minBodyRatio1m = mode === 'SURE' ? 0.3 : 0.25;
-  const closedBullCandle = lastClosed1m.close > lastClosed1m.open && bodyRatio1m >= minBodyRatio1m;
-  const closedBearCandle = lastClosed1m.close < lastClosed1m.open && bodyRatio1m >= minBodyRatio1m;
+  const closedBullCandle =
+    lastClosed1m.close > lastClosed1m.open &&
+    bodyRatio1m >= minBodyRatio1m &&
+    (mode === 'ANALYSIS' || upperWickRatio1m <= 0.45);
+  const closedBearCandle =
+    lastClosed1m.close < lastClosed1m.open &&
+    bodyRatio1m >= minBodyRatio1m &&
+    (mode === 'ANALYSIS' || lowerWickRatio1m <= 0.45);
 
   const emaAligned1m =
     bias1H === 'BULLISH'
@@ -1579,8 +1627,11 @@ export function evaluateStrictMultiTimeframeStrategy(
       const rrNum = stopDistance > 0 ? (singleTp - spotEntry) / stopDistance : 0;
       const rrValid = rrNum >= 1.5 && blockingWall == null;
 
-      riskGatePass = validStop && rrValid && feedIntegrity.spreadAcceptable;
-      riskGateDetail = !validStop
+      const sessionBlockReason = mode === 'SURE' ? getSureSessionLiquidityBlockReason(nowMs) : null;
+      riskGatePass = validStop && rrValid && feedIntegrity.spreadAcceptable && sessionBlockReason == null;
+      riskGateDetail = sessionBlockReason
+        ? sessionBlockReason
+        : !validStop
         ? `Stop distance $${stopDistance.toFixed(2)} outside valid [$${minStopDist.toFixed(2)}–$${maxStopDist.toFixed(2)}] volatility corridor.`
         : blockingWall != null
         ? `Major resistance at $${blockingWall.toFixed(2)} blocks 1:1.5 minimum R:R.`
@@ -1647,8 +1698,11 @@ export function evaluateStrictMultiTimeframeStrategy(
       const rrNum = stopDistance > 0 ? (spotEntry - singleTp) / stopDistance : 0;
       const rrValid = rrNum >= 1.5 && blockingWall == null;
 
-      riskGatePass = validStop && rrValid && feedIntegrity.spreadAcceptable;
-      riskGateDetail = !validStop
+      const sessionBlockReason = mode === 'SURE' ? getSureSessionLiquidityBlockReason(nowMs) : null;
+      riskGatePass = validStop && rrValid && feedIntegrity.spreadAcceptable && sessionBlockReason == null;
+      riskGateDetail = sessionBlockReason
+        ? sessionBlockReason
+        : !validStop
         ? `Stop distance $${stopDistance.toFixed(2)} outside valid [$${minStopDist.toFixed(2)}–$${maxStopDist.toFixed(2)}] volatility corridor.`
         : blockingWall != null
         ? `Major support at $${blockingWall.toFixed(2)} blocks 1:1.5 minimum R:R.`
@@ -1748,6 +1802,7 @@ export function evaluateStrictMultiTimeframeStrategy(
       : (obvAligned5m || obvAligned1m) && (volumeConfirmed5m || volumeOk1m));
   const momentumGatePass =
     bias1H !== 'NEUTRAL' &&
+    !climaxExhausted1H &&
     (mode === 'ANALYSIS'
       ? (rsi15mOk || macd15mOk) && (rsiMomentumOk1m || macdMomentumOk1m)
       : rsi15mOk && macd15mOk && rsiMomentumOk1m && macdMomentumOk1m && notChasing5m);
@@ -1790,6 +1845,8 @@ export function evaluateStrictMultiTimeframeStrategy(
       detail:
         volumeObvNonContradictory && momentumGatePass
           ? 'Volume, OBV, RSI & MACD momentum support trade direction without exhaustion.'
+          : climaxExhausted1H
+          ? `Blocked: 1H climax exhaustion (${emaDist1HInAtr.toFixed(2)}×ATR from 1H EMA21) — awaiting pullback before SURE entry.`
           : 'Blocked: Volume/OBV or RSI/MACD momentum diverges, is overextended, or lacks confirmation.',
     },
     {

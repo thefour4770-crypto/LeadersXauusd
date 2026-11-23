@@ -32,9 +32,9 @@ import { sendSureOutcomeWebPush, sendSureSignalWebPush } from './webPushStore.ts
 
 export const SURE_SCAN_INTERVAL_MS = 60_000;
 const POST_TP_COOLDOWN_MS = 5 * 60_000; // Wait 5m after TP hit before re-entering same direction
-const POST_SL_SAME_DIR_COOLDOWN_MS = 15 * 60_000; // Wait 15m (3x 5m candles) after SL hit before same-direction re-entry
-const POST_SL_ANY_COOLDOWN_MS = 5 * 60_000; // Brief 5m pause after any SL hit
-const CONSECUTIVE_SL_COOLDOWN_MS = 30 * 60_000; // Pause 30m after 2 consecutive SL hits to avoid choppy whipsaw
+const POST_SL_SAME_DIR_COOLDOWN_MS = 30 * 60_000; // Wait 30m (6x 5m candles) after SL hit before same-direction re-entry
+const POST_SL_ANY_COOLDOWN_MS = 15 * 60_000; // Wait 15m after any SL hit for whipsaw volatility to settle
+const CONSECUTIVE_SL_COOLDOWN_MS = 60 * 60_000; // Pause 60m after 2 consecutive SL hits to avoid choppy whipsaw
 
 type SureSignalListener = (event: {
   type: 'sure_signal' | 'sure_status' | 'sure_outcome';
@@ -481,6 +481,7 @@ export async function runSureSignalScan(): Promise<SureSignalScanStatus> {
 
       let updatedHistory = existingHistory;
       let emittedNewSignal: SureSignalEntry | undefined;
+      let cooldownBlockedReason: string | null = null;
       let spotlight = pickSpotlightSignal(existingHistory);
 
       if (
@@ -501,18 +502,25 @@ export async function runSureSignalScan(): Promise<SureSignalScanStatus> {
           recentDecided[0].status === 'SL_HIT' &&
           recentDecided[1].status === 'SL_HIT';
 
-        const inPostCloseCooldown =
-          lastClosed != null &&
-          ((twoConsecutiveSl && closedAgeMs < CONSECUTIVE_SL_COOLDOWN_MS) ||
-            (lastClosed.status === 'SL_HIT' &&
-              (closedAgeMs < POST_SL_ANY_COOLDOWN_MS ||
-                (lastClosed.direction === evaluation.action &&
-                  closedAgeMs < POST_SL_SAME_DIR_COOLDOWN_MS))) ||
-            (lastClosed.status !== 'SL_HIT' &&
-              lastClosed.direction === evaluation.action &&
-              closedAgeMs < POST_TP_COOLDOWN_MS));
+        const requiredCooldownMs = twoConsecutiveSl
+          ? CONSECUTIVE_SL_COOLDOWN_MS
+          : lastClosed?.status === 'SL_HIT'
+          ? lastClosed.direction === evaluation.action
+            ? POST_SL_SAME_DIR_COOLDOWN_MS
+            : POST_SL_ANY_COOLDOWN_MS
+          : lastClosed?.direction === evaluation.action
+          ? POST_TP_COOLDOWN_MS
+          : 0;
 
-        if (!inPostCloseCooldown) {
+        const inPostCloseCooldown = lastClosed != null && closedAgeMs < requiredCooldownMs;
+
+        if (inPostCloseCooldown) {
+          const remainMin = Math.max(1, Math.ceil((requiredCooldownMs - closedAgeMs) / 60_000));
+          cooldownBlockedReason =
+            lastClosed?.status === 'SL_HIT'
+              ? `Post-SL Capital Protection Active (${remainMin}m remaining cooldown after prior SL hit before next ${evaluation.action}).`
+              : `Post-TP Cooldown Active (${remainMin}m wait before repeating ${evaluation.action}).`;
+        } else {
           const newEntry: SureSignalEntry = {
             id: crypto.randomUUID(),
             createdAt: new Date(scanStartedMs).toISOString(),
@@ -561,6 +569,8 @@ export async function runSureSignalScan(): Promise<SureSignalScanStatus> {
           : `DATA UNAVAILABLE — ${firstBlocker}`
         : emittedNewSignal
         ? `SURE ${emittedNewSignal.direction} ACTIVE (Score ${emittedNewSignal.setupScore}/100, R:R ${emittedNewSignal.riskRewardRatio}). Tracking live XAU/USD Spot until TP HIT or SL HIT.`
+        : cooldownBlockedReason
+        ? cooldownBlockedReason
         : `SCANNING FOR HIGH-QUALITY SETUP — ${evaluation.blockers[0] ?? `Score ${evaluation.totalScore}/100 (< 90/100 SURE minimum)`}`;
 
       latestStatus = {

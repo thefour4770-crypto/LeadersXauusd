@@ -825,4 +825,168 @@ test('12. Mixed Spot (1m/5m) + GC=F Futures (15m/1H) translates 15m/1H levels ac
   );
 });
 
+test('13. 1H fast EMA (9>21) + Supertrend reversal unlocks Gate 2 while slow EMA50/SMA50 still lag after a drop', () => {
+  const indicators = createAutoPerfectIndicators();
+  const bull = buildBullishDatasets(3617);
+
+  // Simulate prior multi-day drop (bars 0..175 falling from ~3750 -> ~3540) followed by
+  // strong bullish recovery (bars 176..219 climbing to ~3617) so EMA9 > EMA21 & ST=+1
+  // while EMA21 and SMA20 still sit below slow EMA50/SMA50.
+  const reversal1H: Candle[] = [];
+  const startTime = NOW_SEC - 220 * 3600;
+  let price = 3745;
+  for (let i = 0; i < 220; i++) {
+    const t = startTime + i * 3600;
+    const delta = i < 170 ? -0.45 : i < 205 ? -4.2 : 3.1;
+    const open = Number(price.toFixed(2));
+    const close = Number((price + delta).toFixed(2));
+    const high = Number((Math.max(open, close) + 1.1).toFixed(2));
+    const low = Number((Math.min(open, close) - 1.1).toFixed(2));
+    reversal1H.push({ time: t, open, high, low, close, volume: 2_500 });
+    price = close;
+  }
+
+  const resReversal = evaluateStrictMultiTimeframeStrategy({
+    datasets: {
+      ...bull.datasets,
+      tf1H: makeDataset('1H', reversal1H),
+    },
+    quote: bull.quote,
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+
+  assert.equal(resReversal.evaluation.trend1H.bias, 'BULLISH');
+  assert.equal(resReversal.evaluation.trend1H.supertrendDir, 'BULLISH');
+  assert.equal(resReversal.evaluation.mandatoryGates[1].passed, true);
+  assert.equal(resReversal.evaluation.trend1H.emaAlignment, 'Price > EMA9 > EMA21 (Bullish)');
+
+  // Counter-check: if 1H pulls back below EMA9 while slow EMA50 still sits above EMA21, Gate 2 must stay NEUTRAL
+  const broken1H = reversal1H.map((c) => ({ ...c }));
+  for (let i = 217; i < broken1H.length; i++) {
+    const prevClose = broken1H[i - 1].close;
+    const close = Number((prevClose - 6.0).toFixed(2));
+    broken1H[i] = {
+      time: broken1H[i].time,
+      open: prevClose,
+      high: Number((prevClose + 0.5).toFixed(2)),
+      low: Number((close - 0.8).toFixed(2)),
+      close,
+      volume: 3_000,
+    };
+  }
+  const resNeutral = evaluateStrictMultiTimeframeStrategy({
+    datasets: {
+      ...bull.datasets,
+      tf1H: makeDataset('1H', broken1H),
+    },
+    quote: bull.quote,
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+  assert.equal(resNeutral.evaluation.trend1H.bias, 'NEUTRAL');
+  assert.equal(resNeutral.evaluation.mandatoryGates[1].passed, false);
+});
+
+test('14. SURE blocks Friday pre-weekend (>= 18:30 UTC) and rollover illiquidity while ANALYSIS stays available', () => {
+  const indicators = createAutoPerfectIndicators();
+
+  // Friday 2025-10-10T19:00:00Z -> pre-weekend gap risk window
+  const fridayLateSec = Math.floor(Date.UTC(2025, 9, 10, 19, 0, 0) / 1000);
+  const fridayLateMs = fridayLateSec * 1000;
+
+  const makeAtNow = (tfSec: number, start: number, step: number, mode: 'TREND' | 'STRUCTURE_15M' | 'SETUP_5M' | 'CONFIRM_1M') =>
+    makeTrendCandles({ count: 220, tfSeconds: tfSec, startPrice: start, step, endSec: fridayLateSec - tfSec, mode, bullish: true });
+
+  const c1H = makeAtNow(3600, 3688, 0.42, 'TREND');
+  const c15m = makeAtNow(900, 3734, 0.24, 'STRUCTURE_15M');
+  const c5m = makeAtNow(300, 3752, 0.12, 'SETUP_5M');
+  const c1m = makeAtNow(60, 3768, 0.05, 'CONFIRM_1M');
+  const quoteFriday: MarketQuote = {
+    symbol: 'XAU/USD',
+    bid: Number((c1m[c1m.length - 1].close - 0.15).toFixed(3)),
+    ask: Number((c1m[c1m.length - 1].close + 0.45).toFixed(3)),
+    mid: Number((c1m[c1m.length - 1].close + 0.15).toFixed(3)),
+    spread: 0.6,
+    timestamp: fridayLateMs - 1_500,
+    freshness: 'LIVE',
+    source: 'Swissquote Spot XAU/USD BBO',
+  };
+  const datasets = {
+    tf1H: makeDataset('1H', c1H),
+    tf15m: makeDataset('15m', c15m),
+    tf5m: makeDataset('5m', c5m),
+    tf1m: makeDataset('1m', c1m),
+  };
+
+  const sureBlocked = evaluateStrictMultiTimeframeStrategy({
+    datasets,
+    quote: quoteFriday,
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: fridayLateMs,
+  });
+  assert.notEqual(sureBlocked.evaluation.action, 'BUY');
+  assert.equal(sureBlocked.tradeLevels, undefined);
+  assert.equal(sureBlocked.evaluation.mandatoryGates[6].passed, false);
+  assert.ok(sureBlocked.evaluation.mandatoryGates[6].detail.includes('Pre-weekend risk window'));
+
+  // ANALYSIS mode remains unblocked for chart review
+  const analysisAllowed = evaluateStrictMultiTimeframeStrategy({
+    datasets,
+    quote: quoteFriday,
+    indicatorConfigs: indicators,
+    mode: 'ANALYSIS',
+    nowMs: fridayLateMs,
+  });
+  assert.equal(analysisAllowed.evaluation.action, 'BUY');
+});
+
+test('15. SURE rejects 1H climax exhaustion (>3.8x ATR from EMA21) and opposing 1m rejection wicks', () => {
+  const indicators = createAutoPerfectIndicators();
+
+  // Case A: 1H climax exhaustion (price rockets far >3.8x ATR above 1H EMA21)
+  const bull = buildBullishDatasets(3780);
+  const climax1H = bull.datasets.tf1H.candles.map((c, idx) => {
+    if (idx < 214) return c;
+    const prev = idx === 214 ? bull.datasets.tf1H.candles[213].close : bull.datasets.tf1H.candles[213].close + (idx - 213) * 18;
+    const close = Number((prev + 18).toFixed(2));
+    return { ...c, open: prev, high: Number((close + 0.5).toFixed(2)), low: Number((prev - 0.5).toFixed(2)), close };
+  });
+  // Ensure monotonically contiguous close sequence
+  for (let i = 214; i < climax1H.length; i++) {
+    const p = climax1H[i - 1].close;
+    const c = Number((p + 18).toFixed(2));
+    climax1H[i] = { ...climax1H[i], open: p, high: c + 0.5, low: p - 0.3, close: c };
+  }
+  const resClimax = evaluateStrictMultiTimeframeStrategy({
+    datasets: { ...bull.datasets, tf1H: makeDataset('1H', climax1H) },
+    quote: bull.quote,
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+  assert.notEqual(resClimax.evaluation.action, 'BUY');
+  assert.equal(resClimax.evaluation.mandatoryGates[5].passed, false);
+  assert.ok(resClimax.evaluation.mandatoryGates[5].detail.includes('climax exhaustion'));
+
+  // Case B: Last closed 1m candle has a massive upper rejection wick (>50% of bar) -> Gate 5 blocks BUY
+  const wickedBull = buildBullishDatasets(3780);
+  const last1m = wickedBull.datasets.tf1m.candles[wickedBull.datasets.tf1m.candles.length - 1];
+  last1m.high = Number((last1m.close + (last1m.close - last1m.open) * 2.5).toFixed(2));
+  const resWick = evaluateStrictMultiTimeframeStrategy({
+    datasets: wickedBull.datasets,
+    quote: wickedBull.quote,
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+  assert.equal(resWick.evaluation.confirmation1M.confirmed, false);
+  assert.notEqual(resWick.evaluation.action, 'BUY');
+});
+
+
+
 
