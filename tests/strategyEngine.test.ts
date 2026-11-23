@@ -1087,3 +1087,58 @@ test('17. Live 11-indicator price levels translate GC=F futures basis to Spot sc
   assert.ok(gate6.detail.includes('low volume'), `Gate 6 detail should name specific volume block, got: ${gate6.detail}`);
 });
 
+test('18. Gate 7 ignores minor 15M / swept 1H wicks while still blocking genuine untouched 1H macro walls', () => {
+  const indicators = createAutoPerfectIndicators();
+  const bull = buildBullishDatasets(3780);
+  const price = bull.quote.mid;
+
+  // Inject an old minor 15M fractal high ~$4 above entry (would falsely trip old 15M blockingWall),
+  // plus a swept 1H pivot (~$5 above) that was later exceeded -> Gate 7 must still allow BUY!
+  const c15m = bull.datasets.tf15m.candles.map((c) => ({ ...c }));
+  const m = c15m.length;
+  c15m[m - 12] = { ...c15m[m - 12], high: Number((price + 4.2).toFixed(2)) };
+
+  const resAllowed = evaluateStrictMultiTimeframeStrategy({
+    datasets: { ...bull.datasets, tf15m: makeDataset('15m', c15m) },
+    quote: bull.quote,
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+  assert.equal(resAllowed.evaluation.action, 'BUY', `Minor 15M wick must not block A+ BUY; blockers: ${resAllowed.evaluation.blockers.join(' | ')}`);
+  assert.equal(resAllowed.evaluation.mandatoryGates[6].passed, true);
+  assert.ok(
+    resAllowed.tradeLevels!.riskPoints >= resAllowed.tradeLevels!.atrValue * 1.64,
+    'SURE stop distance must respect 1.65x ATR noise buffer'
+  );
+
+  // Now place an untouched major 1H macro swing ceiling (leftRight=3) just ~$4 above current entry
+  const c1H = bull.datasets.tf1H.candles.map((c) => ({ ...c }));
+  const hLen = c1H.length;
+  const macroWall = Number((price + 4.5).toFixed(2));
+  for (let i = hLen - 8; i <= hLen - 2; i++) {
+    const dist = Math.abs(i - (hLen - 5));
+    const barHigh = dist === 0 ? macroWall : Number((price + 2.0 - dist * 0.4).toFixed(2));
+    c1H[i] = {
+      ...c1H[i],
+      high: Math.max(barHigh, c1H[i].open, c1H[i].close),
+    };
+  }
+  c1H[hLen - 1] = {
+    ...c1H[hLen - 1],
+    high: Math.max(Number((price + 2.2).toFixed(2)), c1H[hLen - 1].open, c1H[hLen - 1].close),
+  };
+
+  const resBlocked = evaluateStrictMultiTimeframeStrategy({
+    datasets: { ...bull.datasets, tf1H: makeDataset('1H', c1H), tf15m: makeDataset('15m', c15m) },
+    quote: bull.quote,
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+  assert.equal(resBlocked.evaluation.mandatoryGates[0].passed, true, 'Feed integrity must remain valid');
+  assert.equal(resBlocked.evaluation.mandatoryGates[6].passed, false);
+  assert.ok(resBlocked.evaluation.mandatoryGates[6].detail.includes('Major 1H resistance'));
+  assert.notEqual(resBlocked.evaluation.action, 'BUY');
+});
+

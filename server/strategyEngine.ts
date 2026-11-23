@@ -126,6 +126,32 @@ function detectSwings(candles: Candle[], leftRight = 3): SwingPoint[] {
   return swings.sort((a, b) => a.index - b.index);
 }
 
+/**
+ * Identifies genuine higher-timeframe (1H) macro support/resistance swing levels (leftRight=3)
+ * that have NOT subsequently been swept/invalidated by a newer higher high or lower low.
+ * Prevents minor 15M pullback wicks or already-broken 1H pauses from falsely blocking SURE breakouts.
+ */
+function detectUnsweptMajorWalls1H(candles: Candle[]): { highs: number[]; lows: number[] } {
+  const win = candles.slice(-160);
+  if (win.length < 15) return { highs: [], lows: [] };
+  const pivots = detectSwings(win, 3);
+  const highs: number[] = [];
+  const lows: number[] = [];
+  for (const p of pivots) {
+    if (p.type === 'HIGH') {
+      const swept = win.slice(p.index + 1).some((b) => b.high > p.price);
+      if (!swept) highs.push(Number(p.price.toFixed(2)));
+    } else {
+      const swept = win.slice(p.index + 1).some((b) => b.low < p.price);
+      if (!swept) lows.push(Number(p.price.toFixed(2)));
+    }
+  }
+  return {
+    highs: highs.sort((a, b) => a - b),
+    lows: lows.sort((a, b) => b - a),
+  };
+}
+
 function detectDemandSupplyZones(
   candles: Candle[],
   atr: number
@@ -1580,10 +1606,11 @@ export function evaluateStrictMultiTimeframeStrategy(
   let riskGateDetail = 'No clear directional bias for stop/target sizing.';
 
   if (candidateDirection !== 'NONE') {
-    const minStopDist = Math.max(0.8, Number((atr5mRaw * (mode === 'SURE' ? 1.15 : 0.85)).toFixed(2)));
+    const minStopDist = Math.max(0.8, Number((atr5mRaw * (mode === 'SURE' ? 1.45 : 0.85)).toFixed(2)));
     const maxStopDist = Math.max(minStopDist + 1, Number((atr5mRaw * 3.9).toFixed(2)));
     const sr15m = computeSupportResistance(closed15m);
     const sr1H = computeSupportResistance(closed1H);
+    const unswept1HWalls = detectUnsweptMajorWalls1H(closed1H);
     const spotSupports5m = sr5m.supportLevels.map((s) => translateToSpot(datasets.tf5m, s)).sort((a, b) => b - a);
     const spotResistances5m = sr5m.resistanceLevels.map((r) => translateToSpot(datasets.tf5m, r)).sort((a, b) => a - b);
     const majorSupports = [
@@ -1594,6 +1621,12 @@ export function evaluateStrictMultiTimeframeStrategy(
       ...sr15m.resistanceLevels.map((r) => translateToSpot(datasets.tf15m, r)),
       ...sr1H.resistanceLevels.map((r) => translateToSpot(datasets.tf1H, r)),
     ].sort((a, b) => a - b);
+    const macroWallResistances = unswept1HWalls.highs
+      .map((r) => translateToSpot(datasets.tf1H, r))
+      .sort((a, b) => a - b);
+    const macroWallSupports = unswept1HWalls.lows
+      .map((s) => translateToSpot(datasets.tf1H, s))
+      .sort((a, b) => b - a);
 
     const recent5mLows = detectSwings(closed5m.slice(-36), 2)
       .filter((s) => s.type === 'LOW')
@@ -1632,7 +1665,7 @@ export function evaluateStrictMultiTimeframeStrategy(
           ? Number(
               Math.min(
                 structuralSupport - atr5mRaw * 0.35,
-                spotEntry - atr5mRaw * (mode === 'SURE' ? 1.35 : 0.95)
+                spotEntry - atr5mRaw * (mode === 'SURE' ? 1.65 : 0.95)
               ).toFixed(2)
             )
           : Number((spotEntry - atr5mRaw * (mode === 'SURE' ? 2.0 : 1.6)).toFixed(2));
@@ -1644,8 +1677,8 @@ export function evaluateStrictMultiTimeframeStrategy(
       const maxTarget = spotEntry + stopDistance * 2.8;
       const targetPool = Array.from(new Set([...spotResistances5m, ...majorResistances])).sort((a, b) => a - b);
       const structuralTarget = targetPool.find((r) => r >= minTarget && r <= maxTarget);
-      // Reject only if a major 15m/1H opposing wall blocks clear upside before 1.15R
-      const blockingWall = majorResistances.find(
+      // Reject only if an untouched/unswept major 1H structural resistance wall blocks clear upside before 1.15R
+      const blockingWall = macroWallResistances.find(
         (r) => r > spotEntry + atr5mRaw * 0.85 && r < spotEntry + stopDistance * 1.15
       );
       const singleTp = Number((structuralTarget ?? spotEntry + stopDistance * 1.8).toFixed(2));
@@ -1659,7 +1692,7 @@ export function evaluateStrictMultiTimeframeStrategy(
         : !validStop
         ? `Stop distance $${stopDistance.toFixed(2)} outside valid [$${minStopDist.toFixed(2)}–$${maxStopDist.toFixed(2)}] volatility corridor.`
         : blockingWall != null
-        ? `Major resistance at $${blockingWall.toFixed(2)} blocks 1:1.5 minimum R:R.`
+        ? `Major 1H resistance at $${blockingWall.toFixed(2)} blocks 1:1.5 minimum R:R.`
         : `Entry $${spotEntry.toFixed(2)} · SL $${rawStop.toFixed(2)} · Single TP $${singleTp.toFixed(2)} (1:${rrNum.toFixed(2)} R:R, Spread $${feedIntegrity.spreadUsd?.toFixed(2)}).`;
 
       if (riskGatePass) {
@@ -1705,7 +1738,7 @@ export function evaluateStrictMultiTimeframeStrategy(
           ? Number(
               Math.max(
                 structuralResistance + atr5mRaw * 0.35,
-                spotEntry + atr5mRaw * (mode === 'SURE' ? 1.35 : 0.95)
+                spotEntry + atr5mRaw * (mode === 'SURE' ? 1.65 : 0.95)
               ).toFixed(2)
             )
           : Number((spotEntry + atr5mRaw * (mode === 'SURE' ? 2.0 : 1.6)).toFixed(2));
@@ -1716,7 +1749,7 @@ export function evaluateStrictMultiTimeframeStrategy(
       const maxTarget = spotEntry - stopDistance * 2.8;
       const targetPool = Array.from(new Set([...spotSupports5m, ...majorSupports])).sort((a, b) => b - a);
       const structuralTarget = targetPool.find((s) => s <= minTarget && s >= maxTarget);
-      const blockingWall = majorSupports.find(
+      const blockingWall = macroWallSupports.find(
         (s) => s < spotEntry - atr5mRaw * 0.85 && s > spotEntry - stopDistance * 1.15
       );
       const singleTp = Number((structuralTarget ?? spotEntry - stopDistance * 1.8).toFixed(2));
@@ -1730,7 +1763,7 @@ export function evaluateStrictMultiTimeframeStrategy(
         : !validStop
         ? `Stop distance $${stopDistance.toFixed(2)} outside valid [$${minStopDist.toFixed(2)}–$${maxStopDist.toFixed(2)}] volatility corridor.`
         : blockingWall != null
-        ? `Major support at $${blockingWall.toFixed(2)} blocks 1:1.5 minimum R:R.`
+        ? `Major 1H support at $${blockingWall.toFixed(2)} blocks 1:1.5 minimum R:R.`
         : `Entry $${spotEntry.toFixed(2)} · SL $${rawStop.toFixed(2)} · Single TP $${singleTp.toFixed(2)} (1:${rrNum.toFixed(2)} R:R, Spread $${feedIntegrity.spreadUsd?.toFixed(2)}).`;
 
       if (riskGatePass) {
