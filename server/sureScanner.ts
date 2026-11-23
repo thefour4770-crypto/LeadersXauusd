@@ -397,6 +397,10 @@ export async function runSureSignalScan(): Promise<SureSignalScanStatus> {
             quote.freshness !== 'UNAVAILABLE' && quote.mid > 0
               ? quote.mid
               : latestStatus.latestPrice ?? lockedTrade.spotPrice,
+          latestConfidencePct: lockedTrade.confidencePct,
+          latestScore: lockedTrade.combinedScore,
+          latestSetupScore: lockedTrade.setupScore,
+          latestAdx: lockedTrade.adxValue,
           reason: lockedNewsBlocked
             ? `HIGH IMPACT NEWS — TRADING PAUSED. Because High Impact News Coming (${lockedNewsProtection?.activeEvent?.title ?? 'USD High Impact Event'}).`
             : `Monitoring ACTIVE SURE ${lockedTrade.direction} (Entry $${lockedTrade.tradeLevels.referencePrice.toFixed(

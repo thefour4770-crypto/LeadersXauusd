@@ -752,7 +752,22 @@ export const TIMEFRAME_SECONDS: Record<Timeframe, number> = {
 export async function fetchPureFuturesCandles(timeframe: Timeframe): Promise<CandleDataset> {
   await ensureSpotStoreLoaded();
   touchLiveSpotCollector();
-  return fetchYahooCandlesBase(timeframe);
+  const base = await fetchYahooCandlesBase(timeframe);
+  const cfg = YAHOO_TIMEFRAME_MAP[timeframe];
+  if (cfg && cfg.seconds < 86_400 && base.candleSource.includes('GC=F') && base.candles.length > 30) {
+    // COMEX GC=F is exchange-delayed; a trailing bar whose closing timestamp exceeds
+    // the feed's regularMarketTime (+5s tolerance) is still forming and carries partial
+    // stub volume/OHLC (e.g., 2 min into a 5m bar). Keep only fully closed exchange bars.
+    const feedCutoffSec = Math.floor(base.latestTimestamp / 1000) + 5;
+    const closedOnly = base.candles.filter((c) => c.time + cfg.seconds <= feedCutoffSec);
+    if (closedOnly.length >= 30 && closedOnly.length < base.candles.length) {
+      return {
+        ...base,
+        candles: closedOnly,
+      };
+    }
+  }
+  return base;
 }
 
 /**

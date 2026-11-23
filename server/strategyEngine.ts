@@ -210,39 +210,56 @@ function detectMarketStructure15m(candles: Candle[]): {
   const priorBearish = lowerHighs || (prevSwingLow != null && lastSwingLow < prevSwingLow);
   const priorBullish = higherLows || (prevSwingHigh != null && lastSwingHigh > prevSwingHigh);
 
-  // Recent structural break check across last 10 closed 15m candles (or newly printed LL/HH swing break)
+  // Continuation structure trend on 15m
+  const emaBearTrend = ema20Last != null && ema50Last != null && ema20Last < ema50Last && latestClose < lastSwingHigh;
+  const emaBullTrend = ema20Last != null && ema50Last != null && ema20Last > ema50Last && latestClose > lastSwingLow;
+
+  const swingSpan = Math.max(0.01, lastSwingHigh - lastSwingLow);
+  const posInSwingRange = (latestClose - lastSwingLow) / swingSpan;
+
+  // Recent structural break check across last 10 closed 15m candles (without false-triggering far away from broken swing)
   const brokeAboveSwingHigh =
     recentCloses.some((c) => c > lastSwingHigh) ||
     latestClose > lastSwingHigh ||
-    (prevSwingHigh != null && lastSwingHigh > prevSwingHigh && latestClose > lastSwingLow);
+    (higherHighs && latestClose > lastSwingLow && posInSwingRange >= 0.55);
   const brokeBelowSwingLow =
     recentCloses.some((c) => c < lastSwingLow) ||
     latestClose < lastSwingLow ||
-    (prevSwingLow != null && lastSwingLow < prevSwingLow && latestClose < lastSwingHigh);
+    (lowerLows && latestClose < lastSwingHigh && posInSwingRange <= 0.45);
 
   let bosDetected: 'BULLISH' | 'BEARISH' | 'NONE' = 'NONE';
   let chochDetected: 'BULLISH' | 'BEARISH' | 'NONE' = 'NONE';
 
-  if (brokeAboveSwingHigh && (higherLows || higherHighs)) {
+  if (brokeAboveSwingHigh && (higherLows || higherHighs) && latestClose > lastSwingLow) {
     bosDetected = 'BULLISH';
-  } else if (brokeBelowSwingLow && (lowerHighs || lowerLows)) {
+  } else if (brokeBelowSwingLow && (lowerHighs || lowerLows) && latestClose < lastSwingHigh) {
     bosDetected = 'BEARISH';
   }
 
-  if (brokeAboveSwingHigh && priorBearish && bosDetected !== 'BULLISH') {
+  // CHoCH only fires when no opposing BOS is active AND latest close still holds the break (not an already-reclaimed sweep)
+  if (bosDetected === 'NONE' && brokeAboveSwingHigh && priorBearish && latestClose >= lastSwingHigh * 0.999) {
     chochDetected = 'BULLISH';
-  } else if (brokeBelowSwingLow && priorBullish && bosDetected !== 'BEARISH') {
+  } else if (bosDetected === 'NONE' && brokeBelowSwingLow && priorBullish && latestClose <= lastSwingLow * 1.001) {
     chochDetected = 'BEARISH';
   }
 
-  // Continuation structure: e.g., bearish LL/LH or EMA20<EMA50 holding below lastSwingHigh after a recent break
-  const emaBearTrend = ema20Last != null && ema50Last != null && ema20Last < ema50Last && latestClose < lastSwingHigh;
-  const emaBullTrend = ema20Last != null && ema50Last != null && ema20Last > ema50Last && latestClose > lastSwingLow;
-
-  if (bosDetected === 'NONE' && (higherHighs || higherLows) && latestClose > lastSwingLow && emaBullTrend) {
+  // Continuation structure: e.g., EMA20 > EMA50 holding above lastSwingLow in upper range (or vice versa)
+  if (
+    bosDetected === 'NONE' &&
+    (higherHighs || higherLows || posInSwingRange >= 0.55) &&
+    latestClose > lastSwingLow &&
+    emaBullTrend
+  ) {
     bosDetected = 'BULLISH';
-  } else if (bosDetected === 'NONE' && (lowerHighs || lowerLows) && latestClose < lastSwingHigh && emaBearTrend) {
+    if (chochDetected === 'BEARISH') chochDetected = 'NONE';
+  } else if (
+    bosDetected === 'NONE' &&
+    (lowerHighs || lowerLows || posInSwingRange <= 0.45) &&
+    latestClose < lastSwingHigh &&
+    emaBearTrend
+  ) {
     bosDetected = 'BEARISH';
+    if (chochDetected === 'BULLISH') chochDetected = 'NONE';
   }
 
   let direction: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
@@ -632,7 +649,8 @@ function getLatestAtrSafe(candles: Candle[], period = 14): number | null {
 function computeAll11IndicatorsSnapshot(
   candles5m: Candle[],
   candles1m: Candle[],
-  configs?: SelectedIndicatorConfig[]
+  configs?: SelectedIndicatorConfig[],
+  translateLevel: (price: number) => number = (p) => Number(p.toFixed(2))
 ): {
   indicators: IndicatorResult[];
   trendClusterBias: SignalClassification;
@@ -641,6 +659,7 @@ function computeAll11IndicatorsSnapshot(
   const evalCandles = candles5m.length >= 205 ? candles5m : candles1m.length >= 60 ? candles1m : candles5m;
   const closes = evalCandles.map((c) => c.close);
   const price = closes[closes.length - 1];
+  const spotPriceRef = translateLevel(price);
 
   const emaPeriodCfg = getParam(configs, 'ema', 'period', 21);
   const smaPeriodCfg = getParam(configs, 'sma', 'period', 50);
@@ -762,11 +781,11 @@ function computeAll11IndicatorsSnapshot(
       name: 'EMA Stack (9/21/50/200)',
       category: 'TREND',
       bias: emaBias,
-      primaryValue: ema21 != null ? `$${ema21.toFixed(2)}` : 'N/A',
+      primaryValue: ema21 != null ? `$${translateLevel(ema21).toFixed(2)}` : 'N/A',
       secondaryValues: {
-        EMA9: ema9 != null ? ema9.toFixed(2) : 'N/A',
-        EMA50: ema50 != null ? ema50.toFixed(2) : 'N/A',
-        EMA200: ema200 != null ? ema200.toFixed(2) : 'Warmup',
+        EMA9: ema9 != null ? translateLevel(ema9).toFixed(2) : 'N/A',
+        EMA50: ema50 != null ? translateLevel(ema50).toFixed(2) : 'N/A',
+        EMA200: ema200 != null ? translateLevel(ema200).toFixed(2) : 'Warmup',
         ClusterWeight: 'Unified Trend Cluster',
       },
       explanation: `EMA 9/21/50/200 alignment (${emaBias}) grouped into unified Trend Cluster to prevent duplicate confidence inflation.`,
@@ -777,10 +796,10 @@ function computeAll11IndicatorsSnapshot(
       name: 'SMA Stack (20/50/200)',
       category: 'TREND',
       bias: smaBias,
-      primaryValue: sma50 != null ? `$${sma50.toFixed(2)}` : 'N/A',
+      primaryValue: sma50 != null ? `$${translateLevel(sma50).toFixed(2)}` : 'N/A',
       secondaryValues: {
-        SMA20: sma20 != null ? sma20.toFixed(2) : 'N/A',
-        SMA200: sma200 != null ? sma200.toFixed(2) : 'Warmup',
+        SMA20: sma20 != null ? translateLevel(sma20).toFixed(2) : 'N/A',
+        SMA200: sma200 != null ? translateLevel(sma200).toFixed(2) : 'Warmup',
         ClusterWeight: 'Unified Trend Cluster',
       },
       explanation: `SMA 20/50/200 baseline trend (${smaBias}), deduplicated alongside EMA & Supertrend.`,
@@ -791,7 +810,7 @@ function computeAll11IndicatorsSnapshot(
       name: `Supertrend (${stPeriod}, ${stMult})`,
       category: 'TREND',
       bias: stBias,
-      primaryValue: stLine != null ? `$${stLine.toFixed(2)} (${stDir > 0 ? 'Bull' : 'Bear'})` : 'N/A',
+      primaryValue: stLine != null ? `$${translateLevel(stLine).toFixed(2)} (${stDir > 0 ? 'Bull' : 'Bear'})` : 'N/A',
       secondaryValues: { Direction: stDir > 0 ? 'BULLISH' : stDir < 0 ? 'BEARISH' : 'FLAT' },
       explanation: `ATR trailing band indicates ${stDir > 0 ? 'bullish' : 'bearish'} trend posture.`,
       score: stDir,
@@ -844,10 +863,10 @@ function computeAll11IndicatorsSnapshot(
       name: `Bollinger Bands (${bbPeriod}, ${bbStd})`,
       category: 'VOLATILITY',
       bias: bbBias,
-      primaryValue: bbM != null ? `Mid $${bbM.toFixed(2)} (%B ${Math.round(bbPctB * 100)}%)` : 'N/A',
+      primaryValue: bbM != null ? `Mid $${translateLevel(bbM).toFixed(2)} (%B ${Math.round(bbPctB * 100)}%)` : 'N/A',
       secondaryValues: {
-        Upper: bbU != null ? bbU.toFixed(2) : 'N/A',
-        Lower: bbL != null ? bbL.toFixed(2) : 'N/A',
+        Upper: bbU != null ? translateLevel(bbU).toFixed(2) : 'N/A',
+        Lower: bbL != null ? translateLevel(bbL).toFixed(2) : 'N/A',
       },
       explanation: `Price %B position relative to upper/mid/lower volatility envelope.`,
       score: bbBias === 'BUY' ? 0.5 : bbBias === 'SELL' ? -0.5 : 0,
@@ -858,7 +877,9 @@ function computeAll11IndicatorsSnapshot(
       category: 'VOLATILITY',
       bias: 'HOLD',
       primaryValue: atrVal != null ? `$${atrVal.toFixed(2)}` : 'N/A',
-      secondaryValues: { Pct: atrVal != null ? `${((atrVal / price) * 100).toFixed(3)}%` : 'N/A' },
+      secondaryValues: {
+        Pct: atrVal != null && spotPriceRef > 0 ? `${((atrVal / spotPriceRef) * 100).toFixed(3)}%` : 'N/A',
+      },
       explanation: `True-range volatility gauge used strictly for stop distance, targets, and regime checks.`,
       score: 0,
     },
@@ -964,11 +985,22 @@ export function evaluateStrictMultiTimeframeStrategy(
     maxBasisDiffPct,
   });
 
+  // Basis adjustment helper: translate any GC=F structural levels to Spot XAU/USD scale
+  const translateToSpot = (tfDataset: CandleDataset, level: number): number => {
+    if (tfDataset.candleSource.includes('GC=F') && feedIntegrity.basisDiffUsd != null) {
+      return Number((level - feedIntegrity.basisDiffUsd).toFixed(2));
+    }
+    return Number(level.toFixed(2));
+  };
+  const snapshotDataset =
+    closed5m.length >= 205 ? datasets.tf5m : closed1m.length >= 60 ? datasets.tf1m : datasets.tf5m;
+  const translateSnapshotLevel = (level: number): number => translateToSpot(snapshotDataset, level);
+
   // Fallback summaries when data integrity fails
   if (!feedIntegrity.valid) {
     const emptyIndicators =
       closed5m.length >= 30 && closed1m.length >= 20
-        ? computeAll11IndicatorsSnapshot(closed5m, closed1m, indicatorConfigs).indicators
+        ? computeAll11IndicatorsSnapshot(closed5m, closed1m, indicatorConfigs, translateSnapshotLevel).indicators
         : [];
 
     const weekendClosed =
@@ -1071,14 +1103,6 @@ export function evaluateStrictMultiTimeframeStrategy(
       },
     };
   }
-
-  // Basis adjustment helper: translate any GC=F structural levels to Spot XAU/USD scale
-  const translateToSpot = (tfDataset: CandleDataset, level: number): number => {
-    if (tfDataset.candleSource.includes('GC=F') && feedIntegrity.basisDiffUsd != null) {
-      return Number((level - feedIntegrity.basisDiffUsd).toFixed(2));
-    }
-    return Number(level.toFixed(2));
-  };
 
   // =========================================================================
   // 1. 1H — MAJOR MARKET TREND (15 points max; EMA+SMA+ST merged into 1 Trend Cluster)
@@ -1540,7 +1564,8 @@ export function evaluateStrictMultiTimeframeStrategy(
   const { indicators: all11Indicators } = computeAll11IndicatorsSnapshot(
     closed5m,
     closed1m,
-    indicatorConfigs
+    indicatorConfigs,
+    translateSnapshotLevel
   );
 
   // =========================================================================
@@ -1807,6 +1832,36 @@ export function evaluateStrictMultiTimeframeStrategy(
       ? (rsi15mOk || macd15mOk) && (rsiMomentumOk1m || macdMomentumOk1m)
       : rsi15mOk && macd15mOk && rsiMomentumOk1m && macdMomentumOk1m && notChasing5m);
 
+  const momentumBlockReasons: string[] = [];
+  if (bias1H === 'NEUTRAL') {
+    momentumBlockReasons.push('awaiting clear 1H direction');
+  } else {
+    if (climaxExhausted1H) {
+      momentumBlockReasons.push(`1H climax exhaustion (${emaDist1HInAtr.toFixed(2)}×ATR from 1H EMA21)`);
+    }
+    if (!obvAligned5m && !obvAligned1m) {
+      momentumBlockReasons.push('5M/1M OBV opposing');
+    }
+    if (mode === 'SURE' && !volumeConfirmed5m && !volumeOk1m) {
+      momentumBlockReasons.push(`low volume (5M ${volRatio5m.toFixed(2)}×, 1M ${volRatio1m.toFixed(2)}×)`);
+    }
+    if (!rsi15mOk) {
+      momentumBlockReasons.push(`15M RSI ${rsi15m != null ? rsi15m.toFixed(1) : 'N/A'} outside range`);
+    }
+    if (!macd15mOk) {
+      momentumBlockReasons.push(`15M MACD hist ${macd15m.hist != null ? macd15m.hist.toFixed(2) : 'N/A'} opposing`);
+    }
+    if (!rsiMomentumOk1m) {
+      momentumBlockReasons.push(`1M RSI ${rsi1m != null ? rsi1m.toFixed(1) : 'N/A'} outside range`);
+    }
+    if (!macdMomentumOk1m) {
+      momentumBlockReasons.push(`1M MACD hist ${macd1m.hist != null ? macd1m.hist.toFixed(2) : 'N/A'} opposing`);
+    }
+    if (mode === 'SURE' && !notChasing5m) {
+      momentumBlockReasons.push(`5M extended (${emaDist5mInAtr.toFixed(2)}×ATR, RSI ${rsi5m != null ? rsi5m.toFixed(1) : 'N/A'})`);
+    }
+  }
+
   const mandatoryGates: SignalGateCheck[] = [
     {
       label: 'Market Data & Feed Integrity',
@@ -1845,9 +1900,7 @@ export function evaluateStrictMultiTimeframeStrategy(
       detail:
         volumeObvNonContradictory && momentumGatePass
           ? 'Volume, OBV, RSI & MACD momentum support trade direction without exhaustion.'
-          : climaxExhausted1H
-          ? `Blocked: 1H climax exhaustion (${emaDist1HInAtr.toFixed(2)}×ATR from 1H EMA21) — awaiting pullback before SURE entry.`
-          : 'Blocked: Volume/OBV or RSI/MACD momentum diverges, is overextended, or lacks confirmation.',
+          : `Blocked: ${momentumBlockReasons.join(' · ') || 'Momentum/volume alignment pending'}.`,
     },
     {
       label: 'Risk Management & Single TP (>= 1:1.5 R:R)',

@@ -169,3 +169,71 @@ test('When both Yahoo hosts return HTTP 429 after cache expiry, cached candles a
     __resetMarketDataCachesForTest();
   }
 });
+
+test('fetchPureFuturesCandles drops unfinished delayed GC=F 5m stub bar whose close exceeds regularMarketTime', async () => {
+  __resetMarketDataCachesForTest();
+  const origFetch = globalThis.fetch;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const delayedMarketTime = nowSec - 600; // ~10m COMEX delay
+  const lastClosed5mStart = Math.floor(delayedMarketTime / 300) * 300 - 300;
+  const unfinished5mStart = lastClosed5mStart + 300; // still forming at delayedMarketTime
+
+  const timestamps: number[] = [];
+  const open: number[] = [];
+  const high: number[] = [];
+  const low: number[] = [];
+  const close: number[] = [];
+  const volume: number[] = [];
+
+  for (let i = 39; i >= 0; i--) {
+    const t = lastClosed5mStart - i * 300;
+    timestamps.push(t);
+    open.push(3610);
+    high.push(3612);
+    low.push(3609);
+    close.push(3611);
+    volume.push(500);
+  }
+  // Append unfinished partial bar (only 2m into 5m interval, tiny volume=61)
+  timestamps.push(unfinished5mStart);
+  open.push(3611);
+  high.push(3611.5);
+  low.push(3610.5);
+  close.push(3611.2);
+  volume.push(61);
+
+  const payload = {
+    chart: {
+      error: null,
+      result: [
+        {
+          meta: {
+            symbol: 'GC=F',
+            regularMarketTime: unfinished5mStart + 120,
+            dataGranularity: '5m',
+          },
+          timestamp: timestamps,
+          indicators: {
+            quote: [{ open, high, low, close, volume }],
+          },
+        },
+      ],
+    },
+  };
+
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })) as typeof fetch;
+
+  try {
+    const ds = await fetchPureFuturesCandles('5m');
+    assert.equal(ds.candles.length, 40);
+    assert.equal(ds.candles[ds.candles.length - 1].time, lastClosed5mStart);
+    assert.equal(ds.candles[ds.candles.length - 1].volume, 500);
+  } finally {
+    globalThis.fetch = origFetch;
+    __resetMarketDataCachesForTest();
+  }
+});

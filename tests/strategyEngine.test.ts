@@ -987,6 +987,103 @@ test('15. SURE rejects 1H climax exhaustion (>3.8x ATR from EMA21) and opposing 
   assert.notEqual(resWick.evaluation.action, 'BUY');
 });
 
+test('16. 15M structure never emits contradictory BOS:BULLISH + CHoCH:BEARISH or false BEARISH BOS after strong rebound above swing low', () => {
+  const indicators = createAutoPerfectIndicators();
+  const bull = buildBullishDatasets(3780);
+  const c15m = bull.datasets.tf15m.candles.map((c) => ({ ...c }));
+  const n = c15m.length;
 
+  // Create two swing lows where the second dipped $0.50 below the first ~20 bars ago,
+  // then a swing high and a lower high followed by strong bullish rebound near upper range
+  // (mimicking today's 3599.9 < 3600.29 dip followed by +22pt recovery above EMA20>EMA50)
+  const baseClose = c15m[n - 35].close;
+  // Earlier swing high
+  for (let i = n - 34; i <= n - 28; i++) {
+    const step = i <= n - 31 ? (i - (n - 34)) * 3.0 : (n - 28 - i) * 3.0;
+    const p = Number((baseClose + step).toFixed(2));
+    c15m[i] = { ...c15m[i], open: p - 0.5, high: p + 1.2, low: p - 1.0, close: p };
+  }
+  // Prev swing low around baseClose - 12
+  for (let i = n - 27; i <= n - 21; i++) {
+    const dip = i === n - 24 ? 12.0 : Math.max(2, 12.0 - Math.abs(i - (n - 24)) * 2.5);
+    const p = Number((baseClose - dip).toFixed(2));
+    c15m[i] = { ...c15m[i], open: p + 0.5, high: p + 1.0, low: i === n - 24 ? p - 0.5 : p - 0.2, close: p };
+  }
+  // Minor high then second swing low slightly deeper (-12.8)
+  for (let i = n - 20; i <= n - 12; i++) {
+    const dip = i === n - 15 ? 12.8 : i < n - 15 ? (i - (n - 20)) * 2.0 : 12.8 - (i - (n - 15)) * 4.0;
+    const p = Number((baseClose - dip).toFixed(2));
+    c15m[i] = { ...c15m[i], open: p + 0.3, high: p + 1.0, low: i === n - 15 ? p - 0.8 : p - 0.2, close: p };
+  }
+  // Strong rebound back into upper range (EMA20 > EMA50, well above lastSwingLow)
+  for (let i = n - 11; i < n; i++) {
+    const prev = c15m[i - 1].close;
+    const close = Number((prev + 1.6).toFixed(2));
+    c15m[i] = { ...c15m[i], open: prev, high: Number((close + 0.6).toFixed(2)), low: Number((prev - 0.4).toFixed(2)), close };
+  }
 
+  const res = evaluateStrictMultiTimeframeStrategy({
+    datasets: { ...bull.datasets, tf15m: makeDataset('15m', c15m) },
+    quote: {
+      ...bull.quote,
+      bid: Number((c15m[n - 1].close - 0.2).toFixed(3)),
+      ask: Number((c15m[n - 1].close + 0.4).toFixed(3)),
+      mid: Number((c15m[n - 1].close + 0.1).toFixed(3)),
+    },
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+
+  assert.equal(res.evaluation.structure15M.direction, 'BULLISH');
+  assert.notEqual(res.evaluation.structure15M.chochDetected, 'BEARISH');
+  assert.equal(res.evaluation.structure15M.agreesWith1H, true);
+  assert.equal(res.evaluation.mandatoryGates[2].passed, true);
+});
+
+test('17. Live 11-indicator price levels translate GC=F futures basis to Spot scale and Gate 6 reports exact failure details', () => {
+  const indicators = createAutoPerfectIndicators();
+  const bull = buildBullishDatasets(3780);
+  const basisShift = 20; // COMEX GC=F trades +$20 over Spot XAU/USD
+
+  const shiftCandles = (arr: Candle[]): Candle[] =>
+    arr.map((c) => ({
+      ...c,
+      open: Number((c.open + basisShift).toFixed(2)),
+      high: Number((c.high + basisShift).toFixed(2)),
+      low: Number((c.low + basisShift).toFixed(2)),
+      close: Number((c.close + basisShift).toFixed(2)),
+    }));
+
+  // Force low volume on 5M/1M futures bars so Gate 6 fails specifically on volume
+  const c5mFutures = shiftCandles(bull.datasets.tf5m.candles);
+  c5mFutures[c5mFutures.length - 1].volume = 50;
+  const c1mFutures = shiftCandles(bull.datasets.tf1m.candles);
+  c1mFutures[c1mFutures.length - 1].volume = 50;
+
+  const res = evaluateStrictMultiTimeframeStrategy({
+    datasets: {
+      tf1H: makeDataset('1H', shiftCandles(bull.datasets.tf1H.candles), 'Yahoo Finance COMEX Gold (GC=F)'),
+      tf15m: makeDataset('15m', shiftCandles(bull.datasets.tf15m.candles), 'Yahoo Finance COMEX Gold (GC=F)'),
+      tf5m: makeDataset('5m', c5mFutures, 'Yahoo Finance COMEX Gold (GC=F)'),
+      tf1m: makeDataset('1m', c1mFutures, 'Yahoo Finance COMEX Gold (GC=F)'),
+    },
+    quote: bull.quote,
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+
+  const emaInd = res.evaluation.all11Indicators.find((i) => i.id === 'ema');
+  assert.ok(emaInd, 'EMA indicator must be present');
+  const ema21Spot = Number(emaInd.primaryValue.replace(/[^0-9.-]/g, ''));
+  assert.ok(
+    Math.abs(ema21Spot - bull.quote.mid) < 12,
+    `EMA21 ($${ema21Spot}) should be translated to Spot scale near $${bull.quote.mid}, not futures scale (+$${basisShift})`
+  );
+
+  const gate6 = res.evaluation.mandatoryGates[5];
+  assert.equal(gate6.passed, false);
+  assert.ok(gate6.detail.includes('low volume'), `Gate 6 detail should name specific volume block, got: ${gate6.detail}`);
+});
 

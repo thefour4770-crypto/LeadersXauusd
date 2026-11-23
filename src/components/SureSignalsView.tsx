@@ -803,14 +803,14 @@ export const SureSignalsView = memo(function SureSignalsView({
       {/* Mandatory Strict SURE Gates */}
       {!isNewsPaused && checks.length > 0 && (
         <section className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] p-4 space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-[#D4AF37]" />
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <ShieldCheck className="w-4 h-4 text-[#D4AF37] shrink-0" />
               <h2 className="text-sm font-display font-semibold text-[#F5D061]">
-                Mandatory SURE Filter Gates ({sureStatus?.tradeLocked ? 'Locked on Active Trade · Waiting for SL/TP' : '60s Auto-Evaluation'})
+                8 Mandatory SURE Filter Gates ({sureStatus?.tradeLocked ? 'Locked on Active Trade · Waiting for SL/TP' : isFeedUnavailable ? 'Feed Integrity Check' : '60s Auto-Evaluation'})
               </h2>
             </div>
-            <span className="text-[11px] font-mono text-zinc-400">
+            <span className="text-[11px] font-mono text-zinc-400 whitespace-nowrap shrink-0">
               {passedCount} / {checks.length} passed
             </span>
           </div>
@@ -830,18 +830,18 @@ export const SureSignalsView = memo(function SureSignalsView({
                 ) : (
                   <XCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                 )}
-                <div className="space-y-0.5 min-w-0">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-zinc-100">
-                    <span>{chk.label}</span>
+                <div className="flex-1 min-w-0 space-y-1">
+                  <div className="flex items-start justify-between gap-2 text-xs font-semibold text-zinc-100">
+                    <span className="leading-snug">{chk.label}</span>
                     <span
-                      className={`text-[10px] font-mono ${
+                      className={`text-[10px] font-mono whitespace-nowrap shrink-0 pt-0.5 ${
                         chk.passed ? 'text-emerald-400' : 'text-amber-400'
                       }`}
                     >
                       · {chk.passed ? 'PASS' : 'WAIT'}
                     </span>
                   </div>
-                  <p className="text-[11px] text-zinc-400 leading-relaxed">{chk.detail}</p>
+                  <p className="text-[11px] text-zinc-400 leading-relaxed break-words">{chk.detail}</p>
                 </div>
               </div>
             ))}
@@ -850,36 +850,46 @@ export const SureSignalsView = memo(function SureSignalsView({
       )}
 
       {/* Latest Live 11 Indicators Snapshot inside SURE */}
-      {evalData && evalData.all11Indicators.length > 0 && (
+      {!isNewsPaused && !isFeedUnavailable && evalData && evalData.all11Indicators.length > 0 && (
         <section className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] p-4 space-y-2.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-display font-semibold text-[#F5D061]">
-              Live 11-Indicator Scanner Telemetry
+              Live 11-Indicator Scanner Telemetry (5M Closed Snapshot)
             </h2>
             <span className="text-[11px] font-mono text-zinc-400">
               1H: {evalData.trend1H.bias} · 15M: {evalData.structure15M.direction} · 5M: {evalData.setup5M.direction} · 1M: {evalData.confirmation1M.direction}
             </span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 text-[11px] font-mono">
-            {evalData.all11Indicators.map((ind) => (
-              <div key={ind.id} className="rounded-xl bg-[#0D0E12] border border-[#D4AF37]/22 p-2.5 space-y-0.5">
-                <div className="flex items-center justify-between gap-1">
-                  <span className="text-zinc-300 font-semibold truncate">{ind.name}</span>
-                  <span
-                    className={
-                      ind.bias === 'BUY'
-                        ? 'text-emerald-400 font-bold'
-                        : ind.bias === 'SELL'
-                        ? 'text-red-400 font-bold'
-                        : 'text-[#F5D061] font-bold'
-                    }
-                  >
-                    {ind.bias}
-                  </span>
+            {evalData.all11Indicators.map((ind) => {
+              const metaEntries = Object.entries(ind.secondaryValues ?? {}).filter(
+                ([k]) => k !== 'ClusterWeight'
+              );
+              return (
+                <div key={ind.id} className="rounded-xl bg-[#0D0E12] border border-[#D4AF37]/22 p-2.5 space-y-1 min-w-0">
+                  <div className="flex items-center justify-between gap-1.5">
+                    <span className="text-zinc-300 font-semibold truncate">{ind.name}</span>
+                    <span
+                      className={`shrink-0 ${
+                        ind.bias === 'BUY'
+                          ? 'text-emerald-400 font-bold'
+                          : ind.bias === 'SELL'
+                          ? 'text-red-400 font-bold'
+                          : 'text-[#F5D061] font-bold'
+                      }`}
+                    >
+                      {ind.bias}
+                    </span>
+                  </div>
+                  <div className="text-zinc-100 tabular-nums truncate">{ind.primaryValue}</div>
+                  {metaEntries.length > 0 && (
+                    <div className="text-[10px] text-zinc-400 tabular-nums truncate">
+                      {metaEntries.map(([k, v]) => `${k}: ${v}`).join(' · ')}
+                    </div>
+                  )}
                 </div>
-                <div className="text-zinc-100 tabular-nums truncate">{ind.primaryValue}</div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       )}
