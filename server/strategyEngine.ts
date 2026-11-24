@@ -1288,6 +1288,10 @@ export function evaluateStrictMultiTimeframeStrategy(
   if (bullCluster1H && dmiBull1H && adxOk1H) bias1H = 'BULLISH';
   else if (bearCluster1H && dmiBear1H && adxOk1H) bias1H = 'BEARISH';
 
+  const struct15m = detectMarketStructure15m(closed15m);
+  const telemetryDir: 'BULLISH' | 'BEARISH' | 'NEUTRAL' =
+    bias1H !== 'NEUTRAL' ? bias1H : struct15m.direction;
+
   let score1H = 0;
   if (bias1H !== 'NEUTRAL') {
     const fullStack = bias1H === 'BULLISH' ? fullClusterBull1H : fullClusterBear1H;
@@ -1299,6 +1303,13 @@ export function evaluateStrictMultiTimeframeStrategy(
   } else if (bullCluster1H || bearCluster1H) {
     score1H += 5;
     if (dmiBull1H || dmiBear1H) score1H += 2;
+  } else if (
+    stDir1H !== 0 &&
+    ((stDir1H > 0 && struct15m.direction === 'BULLISH') ||
+      (stDir1H < 0 && struct15m.direction === 'BEARISH'))
+  ) {
+    // 1H Supertrend already aligns with emerging 15M transition while ADX/EMA catch up
+    score1H += adxVal1H != null && adxVal1H >= 16 ? 5 : 4;
   }
 
   const trend1H: Trend1HSummary = {
@@ -1326,7 +1337,6 @@ export function evaluateStrictMultiTimeframeStrategy(
   // =========================================================================
   // 2. 15M — MARKET STRUCTURE (20 points max)
   // =========================================================================
-  const struct15m = detectMarketStructure15m(closed15m);
   const c15m = closed15m.map((c) => c.close);
   const rsi15m = lastNonNull(rsiArray(c15m, 14)).value;
   const macd15m = macdSeries(c15m, 12, 26, 9);
@@ -1355,6 +1365,9 @@ export function evaluateStrictMultiTimeframeStrategy(
     !opposingChoch15m &&
     ((bias1H === 'BULLISH' && (struct15m.bosDetected === 'BULLISH' || struct15m.chochDetected === 'BULLISH')) ||
       (bias1H === 'BEARISH' && (struct15m.bosDetected === 'BEARISH' || struct15m.chochDetected === 'BEARISH')));
+  const hasBosOrChochTelemetry15m =
+    (telemetryDir === 'BULLISH' && (struct15m.bosDetected === 'BULLISH' || struct15m.chochDetected === 'BULLISH')) ||
+    (telemetryDir === 'BEARISH' && (struct15m.bosDetected === 'BEARISH' || struct15m.chochDetected === 'BEARISH'));
 
   const rsi15mMinBull = mode === 'SURE' ? 45 : 44;
   const rsi15mMaxBull = mode === 'SURE' ? 74 : 78;
@@ -1362,22 +1375,22 @@ export function evaluateStrictMultiTimeframeStrategy(
   const rsi15mMaxBear = mode === 'SURE' ? 55 : 58;
 
   const rsi15mOk =
-    bias1H === 'BULLISH'
+    telemetryDir === 'BULLISH'
       ? rsi15m != null && rsi15m >= rsi15mMinBull && rsi15m <= rsi15mMaxBull
-      : bias1H === 'BEARISH'
+      : telemetryDir === 'BEARISH'
       ? rsi15m != null && rsi15m >= rsi15mMinBear && rsi15m <= rsi15mMaxBear
       : false;
   const macd15mOk =
-    bias1H === 'BULLISH'
+    telemetryDir === 'BULLISH'
       ? macd15m.hist != null && (macd15m.hist > 0 || (macd15m.prevHist != null && macd15m.hist > macd15m.prevHist))
-      : bias1H === 'BEARISH'
+      : telemetryDir === 'BEARISH'
       ? macd15m.hist != null && (macd15m.hist < 0 || (macd15m.prevHist != null && macd15m.hist < macd15m.prevHist))
       : false;
   const bbNotOverextended =
     bbWidth15mPct >= 0.12 &&
-    (bias1H === 'BULLISH'
+    (telemetryDir === 'BULLISH'
       ? bbPos15m <= (mode === 'SURE' ? 0.94 : 0.96)
-      : bias1H === 'BEARISH'
+      : telemetryDir === 'BEARISH'
       ? bbPos15m >= (mode === 'SURE' ? 0.06 : 0.04)
       : false);
 
@@ -1388,6 +1401,12 @@ export function evaluateStrictMultiTimeframeStrategy(
     if (rsi15mOk) score15m += 3;
     if (macd15mOk) score15m += 3;
     if (bbNotOverextended) score15m += 2;
+  } else if (bias1H === 'NEUTRAL' && struct15m.direction !== 'NEUTRAL') {
+    score15m += 4;
+    if (hasBosOrChochTelemetry15m) score15m += 3;
+    if (rsi15mOk) score15m += 2;
+    if (macd15mOk) score15m += 2;
+    if (bbNotOverextended) score15m += 1;
   } else if (struct15m.direction !== 'NEUTRAL') {
     score15m += 4;
   }
@@ -1424,7 +1443,7 @@ export function evaluateStrictMultiTimeframeStrategy(
   const zones5m = detectDemandSupplyZones(closed5m, atr5mRaw);
   const sweepRetest5m = detectSweepAndRetest5m(
     closed5m,
-    bias1H,
+    telemetryDir,
     atr5mRaw,
     nearestSupportRaw,
     nearestResistanceRaw,
@@ -1441,7 +1460,7 @@ export function evaluateStrictMultiTimeframeStrategy(
 
   const volumeConfirmed5m = volRatio5m >= 0.85;
   const obvAligned5m =
-    bias1H === 'BULLISH' ? obvBull5m : bias1H === 'BEARISH' ? obvBear5m : false;
+    telemetryDir === 'BULLISH' ? obvBull5m : telemetryDir === 'BEARISH' ? obvBear5m : false;
 
   const c5m = closed5m.map((c) => c.close);
   const ema9_5m = lastNonNull(emaArray(c5m, 9)).value;
@@ -1455,46 +1474,47 @@ export function evaluateStrictMultiTimeframeStrategy(
   const st5m = supertrendSeries(closed5m, 10, 3);
   const stDir5m = st5m.dir[st5m.dir.length - 1] ?? 0;
 
-  const sweepMatchesDir =
-    (bias1H === 'BULLISH' && sweepRetest5m.liquiditySweep === 'BULLISH_SWEEP') ||
-    (bias1H === 'BEARISH' && sweepRetest5m.liquiditySweep === 'BEARISH_SWEEP');
+  const sweepMatchesTelemetry =
+    (telemetryDir === 'BULLISH' && sweepRetest5m.liquiditySweep === 'BULLISH_SWEEP') ||
+    (telemetryDir === 'BEARISH' && sweepRetest5m.liquiditySweep === 'BEARISH_SWEEP');
+  const sweepMatchesDir = bias1H !== 'NEUTRAL' && sweepMatchesTelemetry;
 
   const spotEma21_5m = ema21_5m != null ? translateToSpot(datasets.tf5m, ema21_5m) : null;
   const spotEntryProbe = Number(quote.mid.toFixed(2));
   const emaDist5mInAtr =
     spotEma21_5m != null && atr5mRaw > 0
-      ? bias1H === 'BULLISH'
+      ? telemetryDir === 'BULLISH'
         ? (spotEntryProbe - spotEma21_5m) / atr5mRaw
-        : bias1H === 'BEARISH'
+        : telemetryDir === 'BEARISH'
         ? (spotEma21_5m - spotEntryProbe) / atr5mRaw
         : 0
       : 0;
   const notChasing5m =
     mode === 'ANALYSIS' ||
     (emaDist5mInAtr <= 1.65 &&
-      (bias1H === 'BULLISH'
+      (telemetryDir === 'BULLISH'
         ? (rsi5m == null || (rsi5m >= 40 && rsi5m <= 74)) && bbPos5m <= 0.94
-        : bias1H === 'BEARISH'
+        : telemetryDir === 'BEARISH'
         ? (rsi5m == null || (rsi5m >= 38 && rsi5m <= 60)) && bbPos5m >= 0.06
         : false));
 
   const retestTouchTol = atr5mRaw * 0.18;
   const setup5mBull =
-    bias1H === 'BULLISH' &&
+    telemetryDir === 'BULLISH' &&
     volatilityRegime5m === 'VALID' &&
     ema9_5m != null &&
     ema21_5m != null &&
     (price5m > ema21_5m ||
-      ((sweepMatchesDir || sweepRetest5m.retestConfirmed) &&
+      ((sweepMatchesTelemetry || sweepRetest5m.retestConfirmed) &&
         price5m >= Math.min(ema9_5m, ema21_5m) - retestTouchTol)) &&
     (stDir5m > 0 || ema9_5m >= ema21_5m * 0.9995 || (ema50_5m != null && ema21_5m > ema50_5m));
   const setup5mBear =
-    bias1H === 'BEARISH' &&
+    telemetryDir === 'BEARISH' &&
     volatilityRegime5m === 'VALID' &&
     ema9_5m != null &&
     ema21_5m != null &&
     (price5m < ema21_5m ||
-      ((sweepMatchesDir || sweepRetest5m.retestConfirmed) &&
+      ((sweepMatchesTelemetry || sweepRetest5m.retestConfirmed) &&
         price5m <= Math.max(ema9_5m, ema21_5m) + retestTouchTol)) &&
     (stDir5m < 0 || ema9_5m <= ema21_5m * 1.0005 || (ema50_5m != null && ema21_5m < ema50_5m));
 
@@ -1505,10 +1525,11 @@ export function evaluateStrictMultiTimeframeStrategy(
     : 'NEUTRAL';
 
   const st5mMatchesDir =
-    (bias1H === 'BULLISH' && stDir5m > 0) || (bias1H === 'BEARISH' && stDir5m < 0);
+    (telemetryDir === 'BULLISH' && stDir5m > 0) || (telemetryDir === 'BEARISH' && stDir5m < 0);
 
-  // Strict SURE mode never bypasses liquidity sweep confirmation or anti-chasing distance
+  // Strict SURE mode never bypasses 1H bias, liquidity sweep confirmation, or anti-chasing distance
   const setupComplete =
+    bias1H !== 'NEUTRAL' &&
     direction5m !== 'NEUTRAL' &&
     volatilityRegime5m === 'VALID' &&
     notChasing5m &&
@@ -1520,8 +1541,8 @@ export function evaluateStrictMultiTimeframeStrategy(
   if (direction5m !== 'NEUTRAL') score5mSetup += 10;
   if (volatilityRegime5m === 'VALID') score5mSetup += 5;
   if (
-    (bias1H === 'BULLISH' && (nearestSupportRaw != null || zones5m.demandZone != null)) ||
-    (bias1H === 'BEARISH' && (nearestResistanceRaw != null || zones5m.supplyZone != null))
+    (telemetryDir === 'BULLISH' && (nearestSupportRaw != null || zones5m.demandZone != null)) ||
+    (telemetryDir === 'BEARISH' && (nearestResistanceRaw != null || zones5m.supplyZone != null))
   ) {
     score5mSetup += 5;
   }
@@ -1529,7 +1550,7 @@ export function evaluateStrictMultiTimeframeStrategy(
   else if (obvAligned5m || volumeConfirmed5m) score5mSetup += 2;
 
   let scoreSweepRetest = 0;
-  if (sweepMatchesDir) scoreSweepRetest += 8;
+  if (sweepMatchesTelemetry) scoreSweepRetest += 8;
   else if (sweepRetest5m.retestConfirmed && direction5m !== 'NEUTRAL') scoreSweepRetest += 3;
   if (sweepRetest5m.retestConfirmed && direction5m !== 'NEUTRAL') scoreSweepRetest += 7;
 
@@ -1594,29 +1615,29 @@ export function evaluateStrictMultiTimeframeStrategy(
     (mode === 'ANALYSIS' || lowerWickRatio1m <= 0.45);
 
   const emaAligned1m =
-    bias1H === 'BULLISH'
+    telemetryDir === 'BULLISH'
       ? ema9_1m != null && ema21_1m != null && lastClosed1m.close > ema9_1m && ema9_1m >= ema21_1m
-      : bias1H === 'BEARISH'
+      : telemetryDir === 'BEARISH'
       ? ema9_1m != null && ema21_1m != null && lastClosed1m.close < ema9_1m && ema9_1m <= ema21_1m
       : false;
   const supertrendAligned1m =
-    bias1H === 'BULLISH' ? stDir1m > 0 : bias1H === 'BEARISH' ? stDir1m < 0 : false;
+    telemetryDir === 'BULLISH' ? stDir1m > 0 : telemetryDir === 'BEARISH' ? stDir1m < 0 : false;
   const rsiMomentumOk1m =
-    bias1H === 'BULLISH'
+    telemetryDir === 'BULLISH'
       ? rsi1m != null && rsi1m >= (mode === 'SURE' ? 42 : 44) && rsi1m <= (mode === 'SURE' ? 74 : 80)
-      : bias1H === 'BEARISH'
+      : telemetryDir === 'BEARISH'
       ? rsi1m != null && rsi1m >= (mode === 'SURE' ? 28 : 20) && rsi1m <= (mode === 'SURE' ? 58 : 56)
       : false;
   const macdMomentumOk1m =
-    bias1H === 'BULLISH'
+    telemetryDir === 'BULLISH'
       ? macd1m.hist != null && (macd1m.hist > 0 || (macd1m.prevHist != null && macd1m.hist > macd1m.prevHist))
-      : bias1H === 'BEARISH'
+      : telemetryDir === 'BEARISH'
       ? macd1m.hist != null && (macd1m.hist < 0 || (macd1m.prevHist != null && macd1m.hist < macd1m.prevHist))
       : false;
   const dmiAligned1m =
-    bias1H === 'BULLISH'
+    telemetryDir === 'BULLISH'
       ? plusDI1m != null && minusDI1m != null && plusDI1m > minusDI1m
-      : bias1H === 'BEARISH'
+      : telemetryDir === 'BEARISH'
       ? plusDI1m != null && minusDI1m != null && minusDI1m > plusDI1m
       : false;
   const volumeOk1m =
@@ -1624,7 +1645,7 @@ export function evaluateStrictMultiTimeframeStrategy(
       ? barRange1m >= atr5mRaw * 0.1 || volRatio5m >= 0.65
       : volRatio1m >= 0.55 || volRatio5m >= 0.7;
   const candleDirMatches =
-    (bias1H === 'BULLISH' && closedBullCandle) || (bias1H === 'BEARISH' && closedBearCandle);
+    (telemetryDir === 'BULLISH' && closedBullCandle) || (telemetryDir === 'BEARISH' && closedBearCandle);
 
   // If 1m candles come from delayed futures (GC=F), verify live Spot hasn't already bolted far ahead
   const spot1mClose = translateToSpot(datasets.tf1m, lastClosed1m.close);
@@ -1676,9 +1697,9 @@ export function evaluateStrictMultiTimeframeStrategy(
   // =========================================================================
   const obv1m = obvSeries(closed1m, 20);
   const obvAligned1m =
-    bias1H === 'BULLISH'
+    telemetryDir === 'BULLISH'
       ? obv1m.obv != null && obv1m.signal != null && obv1m.obv >= obv1m.signal
-      : bias1H === 'BEARISH'
+      : telemetryDir === 'BEARISH'
       ? obv1m.obv != null && obv1m.signal != null && obv1m.obv <= obv1m.signal
       : false;
 
@@ -1908,15 +1929,10 @@ export function evaluateStrictMultiTimeframeStrategy(
   // =========================================================================
   // 7. 100-POINT SCORING & MANDATORY STRICT GATES
   // =========================================================================
-  const totalScore = Math.min(
-    100,
-    Math.max(
-      0,
-      Math.round(
-        score1H + score15m + score5mSetup + scoreSweepRetest + score1m + scoreVolumeObv + scoreMomentum
-      )
-    )
+  const rawTotalScore = Math.round(
+    score1H + score15m + score5mSetup + scoreSweepRetest + score1m + scoreVolumeObv + scoreMomentum
   );
+  const totalScore = Math.min(bias1H === 'NEUTRAL' ? 74 : 100, Math.max(0, rawTotalScore));
   const scoreCategory = scoreCategoryFromScore(totalScore);
   const minScoreRequired = mode === 'SURE' ? 90 : 75;
 
@@ -1940,14 +1956,16 @@ export function evaluateStrictMultiTimeframeStrategy(
       score: score5mSetup,
       maxScore: 25,
       detail: setup5M.summary,
-      passed: direction5m !== 'NEUTRAL' && volatilityRegime5m === 'VALID',
+      passed: bias1H !== 'NEUTRAL' && direction5m !== 'NEUTRAL' && volatilityRegime5m === 'VALID',
     },
     {
       category: 'Liquidity Sweep & Retest',
       score: scoreSweepRetest,
       maxScore: 15,
       detail: `Sweep: ${sweepRetest5m.liquiditySweep} · Retest: ${sweepRetest5m.retestConfirmed ? 'Confirmed' : 'Pending'}`,
-      passed: mode === 'SURE' ? sweepMatchesDir && sweepRetest5m.retestConfirmed : sweepMatchesDir || sweepRetest5m.retestConfirmed,
+      passed:
+        bias1H !== 'NEUTRAL' &&
+        (mode === 'SURE' ? sweepMatchesDir && sweepRetest5m.retestConfirmed : sweepMatchesDir || sweepRetest5m.retestConfirmed),
     },
     {
       category: '1M Entry Confirmation',
@@ -1961,14 +1979,14 @@ export function evaluateStrictMultiTimeframeStrategy(
       score: scoreVolumeObv,
       maxScore: 5,
       detail: `5M Vol ${volRatio5m.toFixed(2)}× (OBV ${obvAligned5m ? 'aligned' : 'flat/opposing'}) · 1M Vol ${volRatio1m.toFixed(2)}×`,
-      passed: obvAligned5m && (volumeConfirmed5m || volumeOk1m),
+      passed: bias1H !== 'NEUTRAL' && obvAligned5m && (volumeConfirmed5m || volumeOk1m),
     },
     {
       category: 'Momentum Confirmation',
       score: scoreMomentum,
       maxScore: 5,
       detail: `15M RSI ${rsi15m?.toFixed(1) ?? 'N/A'} / MACD ${macd15m.hist?.toFixed(2) ?? 'N/A'} · 1M RSI ${rsi1m?.toFixed(1) ?? 'N/A'}`,
-      passed: (rsi15mOk || macd15mOk) && (rsiMomentumOk1m || macdMomentumOk1m),
+      passed: bias1H !== 'NEUTRAL' && (rsi15mOk || macd15mOk) && (rsiMomentumOk1m || macdMomentumOk1m),
     },
   ];
 

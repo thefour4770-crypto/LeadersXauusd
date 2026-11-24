@@ -1329,6 +1329,48 @@ test('21. Gate 7 keeps 2-bar-old 1H climax wall active at 1.40R while allowing >
   assert.equal(resAgedAllowed.evaluation.action, 'BUY');
 });
 
+test('22. Transitional 1H NEUTRAL reflects real sub-timeframe setup readiness (35-74) instead of collapsing to 11/100 while blocking SURE entry', () => {
+  const indicators = createAutoPerfectIndicators();
+  const bull = buildBullishDatasets(3630);
+
+  // Craft a flat/choppy 1H series with ADX < 18 (NEUTRAL) so Gate 2 fails while 15M/5M/1M align BULLISH
+  const chop1H: Candle[] = [];
+  const startTime = NOW_SEC - 220 * 3600;
+  let price = 3630;
+  for (let i = 0; i < 220; i++) {
+    const t = startTime + i * 3600;
+    const step = i % 2 === 0 ? 1.8 : -1.7;
+    const open = Number(price.toFixed(2));
+    const close = Number((price + step).toFixed(2));
+    chop1H.push({
+      time: t,
+      open,
+      high: Number((Math.max(open, close) + 1.5).toFixed(2)),
+      low: Number((Math.min(open, close) - 1.5).toFixed(2)),
+      close,
+      volume: 3_000,
+    });
+    price = close;
+  }
+
+  const res = evaluateStrictMultiTimeframeStrategy({
+    datasets: { ...bull.datasets, tf1H: makeDataset('1H', chop1H) },
+    quote: bull.quote,
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+
+  assert.equal(res.evaluation.trend1H.bias, 'NEUTRAL');
+  assert.equal(res.evaluation.mandatoryGates[1].passed, false);
+  assert.ok(res.evaluation.action === 'NO TRADE' || res.evaluation.action === 'WAIT');
+  assert.ok(
+    res.evaluation.totalScore >= 35 && res.evaluation.totalScore <= 74,
+    `Expected transitional readiness score between 35 and 74, got ${res.evaluation.totalScore}`
+  );
+});
+
+
 
 
 
