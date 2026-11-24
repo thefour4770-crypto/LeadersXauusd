@@ -1452,3 +1452,63 @@ test('24. Bearish 5M setup allows healthy downtrend RSI (e.g. 32-37) symmetric w
   const gate4 = res.evaluation.mandatoryGates[3];
   assert.equal(gate4.passed, true, `Gate 4 should pass at bearish 5M RSI ${latestRsi.toFixed(1)}, got: ${gate4.detail}`);
 });
+
+test('25. Full-cluster 1H breakdown with strong DMI spread (>=8) and ADX>=15.5 unlocks Gate 2 despite Wilder ADX lag', () => {
+  const indicators = createAutoPerfectIndicators();
+  const base = buildBearishDatasets(3650);
+  // Build a 1H series with chop followed by a 2-bar impulsive breakdown so Wilder ADX lags in [15.5, 17.5)
+  // while ST=-1, EMA9<21<=50, Price<SMA20, and (-DI - +DI) >= 8.
+  const c1H = base.datasets.tf1H.candles.map((c, idx, arr) => {
+    if (idx < arr.length - 2) {
+      const wave = Math.sin(idx * 0.75) * 8;
+      const p = Number((3630 + wave).toFixed(2));
+      return { ...c, open: p, high: p + 7, low: p - 7, close: p };
+    }
+    const stepDown = (idx - (arr.length - 3)) * 28;
+    const p = Number((3620 - stepDown).toFixed(2));
+    return { ...c, open: p + 12, high: p + 13, low: p - 2, close: p };
+  });
+
+  const res = evaluateStrictMultiTimeframeStrategy({
+    datasets: { ...base.datasets, tf1H: makeDataset('1H', c1H) },
+    quote: base.quote,
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+
+  assert.ok(
+    (res.evaluation.trend1H.adxValue ?? 0) >= 15.5 && (res.evaluation.trend1H.adxValue ?? 99) < 17.5,
+    `Expected lagged ADX in [15.5, 17.5), got ${res.evaluation.trend1H.adxValue}`
+  );
+  assert.equal(res.evaluation.trend1H.bias, 'BEARISH');
+  assert.equal(res.evaluation.mandatoryGates[1].passed, true);
+});
+
+test('26. Gates 4, 5, and 6 report true 5M/1M/Momentum readiness independently when 1H is NEUTRAL while still blocking entry', () => {
+  const indicators = createAutoPerfectIndicators();
+  const bull = buildBullishDatasets(3780);
+  // Flatten 1H into sideways chop so bias1H = NEUTRAL while 15M/5M/1M remain cleanly BULLISH
+  const chop1H = bull.datasets.tf1H.candles.map((c, idx) => {
+    const wave = (idx % 2 === 0 ? 1 : -1) * 2.5;
+    const p = Number((3780 + wave).toFixed(2));
+    return { ...c, open: p, high: p + 3, low: p - 3, close: p };
+  });
+
+  const res = evaluateStrictMultiTimeframeStrategy({
+    datasets: { ...bull.datasets, tf1H: makeDataset('1H', chop1H) },
+    quote: bull.quote,
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+
+  assert.equal(res.evaluation.trend1H.bias, 'NEUTRAL');
+  assert.equal(res.evaluation.mandatoryGates[1].passed, false, 'Gate 2 (1H) must fail');
+  assert.equal(res.evaluation.mandatoryGates[2].passed, false, 'Gate 3 (15M agrees 1H) must fail');
+  assert.equal(res.evaluation.mandatoryGates[3].passed, true, 'Gate 4 (5M) should reflect ready 5M setup');
+  assert.equal(res.evaluation.mandatoryGates[4].passed, true, 'Gate 5 (1M) should reflect ready 1M closed bar');
+  assert.equal(res.evaluation.mandatoryGates[5].passed, true, 'Gate 6 (Vol/Mom) should reflect aligned momentum');
+  assert.equal(res.evaluation.action, 'NO TRADE');
+});
+

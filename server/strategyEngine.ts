@@ -1274,10 +1274,24 @@ export function evaluateStrictMultiTimeframeStrategy(
     adxVal1H != null &&
     ((maBreakoutBull1H &&
       diSpreadBull > 0 &&
-      adxVal1H >= (diSpreadBull >= 2.0 && emaBull1H ? 17.5 : mode === 'SURE' ? 19.0 : 17.5)) ||
+      adxVal1H >=
+        (diSpreadBull >= 8.0 && emaBull1H && stDir1H > 0
+          ? 15.5
+          : diSpreadBull >= 2.0 && emaBull1H
+          ? 17.5
+          : mode === 'SURE'
+          ? 19.0
+          : 17.5)) ||
       (maBreakdownBear1H &&
         diSpreadBear > 0 &&
-        adxVal1H >= (diSpreadBear >= 2.0 && emaBear1H ? 17.5 : mode === 'SURE' ? 19.0 : 17.5)));
+        adxVal1H >=
+          (diSpreadBear >= 8.0 && emaBear1H && stDir1H < 0
+            ? 15.5
+            : diSpreadBear >= 2.0 && emaBear1H
+            ? 17.5
+            : mode === 'SURE'
+            ? 19.0
+            : 17.5)));
   const adxOk1H = adxOkStandard1H || adxOkReversal1H;
   const dmiBull1H = diSpreadBull > 1.5 || (maBreakoutBull1H && diSpreadBull > 0);
   const dmiBear1H = diSpreadBear > 1.5 || (maBreakdownBear1H && diSpreadBear > 0);
@@ -1525,15 +1539,16 @@ export function evaluateStrictMultiTimeframeStrategy(
   const st5mMatchesDir =
     (telemetryDir === 'BULLISH' && stDir5m > 0) || (telemetryDir === 'BEARISH' && stDir5m < 0);
 
-  // Strict SURE mode never bypasses 1H bias, liquidity sweep confirmation, or anti-chasing distance
+  // Gate 4 evaluates 5M setup, liquidity sweep/retest, and anti-chasing against telemetryDir
+  // (Gate 2 & Gate 3 independently enforce 1H trend & 15M agreement before any entry fires)
   const setupComplete =
-    bias1H !== 'NEUTRAL' &&
+    telemetryDir !== 'NEUTRAL' &&
     direction5m !== 'NEUTRAL' &&
     volatilityRegime5m === 'VALID' &&
     notChasing5m &&
     (mode === 'SURE'
-      ? sweepMatchesDir && sweepRetest5m.retestConfirmed
-      : sweepRetest5m.retestConfirmed || sweepMatchesDir || st5mMatchesDir);
+      ? sweepMatchesTelemetry && sweepRetest5m.retestConfirmed
+      : sweepRetest5m.retestConfirmed || sweepMatchesTelemetry || st5mMatchesDir);
 
   let score5mSetup = 0;
   if (direction5m !== 'NEUTRAL') score5mSetup += 10;
@@ -1653,7 +1668,7 @@ export function evaluateStrictMultiTimeframeStrategy(
     Math.abs(spotEntryProbe - spot1mClose) <= atr5mRaw * 2.0;
 
   const confirmed1m =
-    bias1H !== 'NEUTRAL' &&
+    telemetryDir !== 'NEUTRAL' &&
     candleDirMatches &&
     futuresSpotDriftOk &&
     (emaAligned1m || supertrendAligned1m) &&
@@ -1674,8 +1689,9 @@ export function evaluateStrictMultiTimeframeStrategy(
   if (dmiAligned1m) score1m += 2;
   if (volumeOk1m) score1m += 1;
 
+  const confirmedSideLabel = telemetryDir === 'BULLISH' ? 'BUY' : 'SELL';
   const confirmation1M: Confirmation1MSummary = {
-    direction: confirmed1m ? (bias1H === 'BULLISH' ? 'BUY' : 'SELL') : 'WAIT',
+    direction: confirmed1m ? confirmedSideLabel : 'WAIT',
     closedCandleTime: lastClosed1m.time * 1000,
     closedCandleBullish: lastClosed1m.close >= lastClosed1m.open,
     emaAligned: emaAligned1m,
@@ -1686,7 +1702,7 @@ export function evaluateStrictMultiTimeframeStrategy(
     volumeOk: volumeOk1m,
     confirmed: confirmed1m,
     summary: confirmed1m
-      ? `1M closed bar (${new Date(lastClosed1m.time * 1000).toISOString()}) confirmed ${bias1H === 'BULLISH' ? 'BUY' : 'SELL'} with EMA/Supertrend, DMI, RSI/MACD & Volume.`
+      ? `1M closed bar (${new Date(lastClosed1m.time * 1000).toISOString()}) confirmed ${confirmedSideLabel} with EMA/Supertrend, DMI, RSI/MACD & Volume.`
       : `1M closed bar waiting (${candleDirMatches ? 'candle OK' : 'closed candle direction unconfirmed'}, EMA:${emaAligned1m ? 'OK' : 'NO'}, ST:${supertrendAligned1m ? 'OK' : 'NO'}, DMI:${dmiAligned1m ? 'OK' : 'NO'}, Mom:${rsiMomentumOk1m && macdMomentumOk1m ? 'OK' : 'NO'}, Vol:${volumeOk1m ? 'OK' : 'NO'}, Drift:${futuresSpotDriftOk ? 'OK' : 'NO'}).`,
   };
 
@@ -1989,20 +2005,20 @@ export function evaluateStrictMultiTimeframeStrategy(
   ];
 
   const volumeObvNonContradictory =
-    bias1H !== 'NEUTRAL' &&
+    telemetryDir !== 'NEUTRAL' &&
     (mode === 'ANALYSIS'
       ? obvAligned5m || obvAligned1m
       : (obvAligned5m || obvAligned1m) && (volumeConfirmed5m || volumeOk1m));
   const momentumGatePass =
-    bias1H !== 'NEUTRAL' &&
+    telemetryDir !== 'NEUTRAL' &&
     !climaxExhausted1H &&
     (mode === 'ANALYSIS'
       ? (rsi15mOk || macd15mOk) && (rsiMomentumOk1m || macdMomentumOk1m)
       : rsi15mOk && macd15mOk && rsiMomentumOk1m && macdMomentumOk1m && notChasing5m);
 
   const momentumBlockReasons: string[] = [];
-  if (bias1H === 'NEUTRAL') {
-    momentumBlockReasons.push('awaiting clear 1H direction');
+  if (telemetryDir === 'NEUTRAL') {
+    momentumBlockReasons.push('awaiting directional structure');
   } else {
     if (climaxExhausted1H) {
       momentumBlockReasons.push(`1H climax exhaustion (${emaDist1HInAtr.toFixed(2)}×ATR from 1H EMA21)`);
