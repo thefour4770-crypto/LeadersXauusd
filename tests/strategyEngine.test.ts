@@ -1202,4 +1202,66 @@ test('19. Recent 1H shooting-star blow-off high blocks late BUY chase within 1.4
   assert.ok(rrActual >= 1.55 && rrActual <= 1.65, `Expected compact ~1.60R TP on wide stop, got ${rrActual.toFixed(2)}R`);
 });
 
+test('20. 1H Multi-MA breakdown flips Gate 2 BEARISH despite lagging Supertrend ATR band while SURE rejects oversized chased stops', () => {
+  const indicators = createAutoPerfectIndicators();
+  const bear = buildBearishDatasets(3630);
+
+  // Build a 1H series that rallies sharply (widening Supertrend band far below) and then reverses down
+  // below EMA9 (falling), EMA21, EMA50, and SMA20 with -DI > +DI while Supertrend(10,3) still lags BULLISH
+  const rev1H: Candle[] = [];
+  const startTime = NOW_SEC - 220 * 3600;
+  let price = 3580;
+  for (let i = 0; i < 220; i++) {
+    const t = startTime + i * 3600;
+    let delta = 0.2;
+    let wick = 1.1;
+    if (i >= 195 && i < 204) {
+      delta = 10.5; // Sharp rally spikes ATR(10) and leaves a deep Supertrend floor
+      wick = 14.0;
+    } else if (i >= 204) {
+      delta = -4.2; // Steady sell-off breaking below EMA9/21/50 & SMA20 with -DI > +DI while ST floor sits lower
+      wick = 1.2;
+    }
+    const open = Number(price.toFixed(2));
+    const close = Number((price + delta).toFixed(2));
+    const high = Number((Math.max(open, close) + wick).toFixed(2));
+    const low = Number((Math.min(open, close) - wick).toFixed(2));
+    rev1H.push({ time: t, open, high, low, close, volume: 3_500 });
+    price = close;
+  }
+
+  const resBearRev = evaluateStrictMultiTimeframeStrategy({
+    datasets: { ...bear.datasets, tf1H: makeDataset('1H', rev1H) },
+    quote: bear.quote,
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+
+  assert.equal(resBearRev.evaluation.trend1H.bias, 'BEARISH', `Expected 1H Multi-MA breakdown to flip BEARISH, got ${resBearRev.evaluation.trend1H.summary}`);
+  assert.equal(resBearRev.evaluation.mandatoryGates[1].passed, true);
+
+  // Counter-check: oversized chased stop (> max($12.50, 2.6x ATR5m)) must be rejected in SURE mode
+  const wideStopBull = buildBullishDatasets(3626);
+  const c5mWide = wideStopBull.datasets.tf5m.candles.map((c, idx, arr) => {
+    // Deep sweep low far below current entry (~$16 away while ATR5m is ~$4.5 -> >3.5x ATR and >$12.50)
+    if (idx === arr.length - 4) {
+      return { ...c, low: Number((wideStopBull.quote.mid - 16.5).toFixed(2)) };
+    }
+    if (idx >= arr.length - 12) {
+      return { ...c, high: Number((c.high + 2.0).toFixed(2)), low: Number((c.low - 2.0).toFixed(2)) };
+    }
+    return c;
+  });
+  const resTooWide = evaluateStrictMultiTimeframeStrategy({
+    datasets: { ...wideStopBull.datasets, tf5m: makeDataset('5m', c5mWide) },
+    quote: wideStopBull.quote,
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+  assert.notEqual(resTooWide.evaluation.action, 'BUY', 'SURE must reject chased entry whose stop exceeds volatility corridor');
+});
+
+
 

@@ -1170,7 +1170,9 @@ export function evaluateStrictMultiTimeframeStrategy(
   // =========================================================================
   const c1H = closed1H.map((c) => c.close);
   const price1H = c1H[c1H.length - 1];
-  const ema9_1H = lastNonNull(emaArray(c1H, 9)).value;
+  const ema9Arr1H = emaArray(c1H, 9);
+  const ema9_1H = lastNonNull(ema9Arr1H).value;
+  const ema9Prev_1H = ema9Arr1H.length >= 2 ? ema9Arr1H[ema9Arr1H.length - 2] : null;
   const ema21_1H = lastNonNull(emaArray(c1H, 21)).value;
   const ema50_1H = lastNonNull(emaArray(c1H, 50)).value;
   const ema200_1H = lastNonNull(emaArray(c1H, 200)).value;
@@ -1198,19 +1200,59 @@ export function evaluateStrictMultiTimeframeStrategy(
     ema9_1H != null && ema21_1H != null && ema50_1H != null && price1H < ema21_1H && ema9_1H < ema21_1H && ema21_1H <= ema50_1H;
   const smaBull1H = sma20_1H != null && sma50_1H != null && price1H > sma20_1H && sma20_1H >= sma50_1H;
   const smaBear1H = sma20_1H != null && sma50_1H != null && price1H < sma20_1H && sma20_1H <= sma50_1H;
+  const maBreakoutBull1H =
+    ema9_1H != null &&
+    ema9Prev_1H != null &&
+    ema21_1H != null &&
+    ema50_1H != null &&
+    sma20_1H != null &&
+    price1H > ema9_1H &&
+    ema9_1H > ema9Prev_1H &&
+    price1H > ema21_1H &&
+    price1H > ema50_1H &&
+    price1H > sma20_1H;
+  const maBreakdownBear1H =
+    ema9_1H != null &&
+    ema9Prev_1H != null &&
+    ema21_1H != null &&
+    ema50_1H != null &&
+    sma20_1H != null &&
+    price1H < ema9_1H &&
+    ema9_1H < ema9Prev_1H &&
+    price1H < ema21_1H &&
+    price1H < ema50_1H &&
+    price1H < sma20_1H;
   const longTermBull1H = (ema200_1H == null || price1H > ema200_1H) && (sma200_1H == null || price1H > sma200_1H);
   const longTermBear1H = (ema200_1H == null || price1H < ema200_1H) && (sma200_1H == null || price1H < sma200_1H);
 
-  // Deduplicated Trend Cluster for 1H: Supertrend + MA alignment (including fast EMA 9>21 stack) OR dual EMA+SMA stack alignment
-  const bullCluster1H = ((emaBull1H || smaBull1H || emaFastBull1H) && stDir1H > 0) || (emaBull1H && smaBull1H);
-  const bearCluster1H = ((emaBear1H || smaBear1H || emaFastBear1H) && stDir1H < 0) || (emaBear1H && smaBear1H);
+  // Deduplicated Trend Cluster for 1H: Supertrend + MA alignment OR dual EMA+SMA stack OR clean all-4-MA breakout/breakdown
+  const bullCluster1H =
+    ((emaBull1H || smaBull1H || emaFastBull1H) && stDir1H > 0) ||
+    (emaBull1H && smaBull1H) ||
+    maBreakoutBull1H;
+  const bearCluster1H =
+    ((emaBear1H || smaBear1H || emaFastBear1H) && stDir1H < 0) ||
+    (emaBear1H && smaBear1H) ||
+    maBreakdownBear1H;
   const fullClusterBull1H = emaBull1H && smaBull1H && stDir1H > 0 && longTermBull1H;
   const fullClusterBear1H = emaBear1H && smaBear1H && stDir1H < 0 && longTermBear1H;
 
   const minAdx1H = mode === 'SURE' ? 22 : 18;
-  const adxOk1H = adxVal1H != null && adxVal1H >= minAdx1H;
-  const dmiBull1H = plusDI1H != null && minusDI1H != null && plusDI1H > minusDI1H + 1.5;
-  const dmiBear1H = plusDI1H != null && minusDI1H != null && minusDI1H > plusDI1H + 1.5;
+  const adxOkStandard1H = adxVal1H != null && adxVal1H >= minAdx1H;
+  const adxOkReversal1H =
+    adxVal1H != null &&
+    adxVal1H >= (mode === 'SURE' ? 19.5 : 17.5) &&
+    ((maBreakoutBull1H && plusDI1H != null && minusDI1H != null && plusDI1H > minusDI1H) ||
+      (maBreakdownBear1H && plusDI1H != null && minusDI1H != null && minusDI1H > plusDI1H));
+  const adxOk1H = adxOkStandard1H || adxOkReversal1H;
+  const dmiBull1H =
+    plusDI1H != null &&
+    minusDI1H != null &&
+    (plusDI1H > minusDI1H + 1.5 || (maBreakoutBull1H && plusDI1H > minusDI1H));
+  const dmiBear1H =
+    plusDI1H != null &&
+    minusDI1H != null &&
+    (minusDI1H > plusDI1H + 1.5 || (maBreakdownBear1H && minusDI1H > plusDI1H));
 
   let bias1H: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
   if (bullCluster1H && dmiBull1H && adxOk1H) bias1H = 'BULLISH';
@@ -1642,7 +1684,12 @@ export function evaluateStrictMultiTimeframeStrategy(
 
   if (candidateDirection !== 'NONE') {
     const minStopDist = Math.max(0.8, Number((atr5mRaw * (mode === 'SURE' ? 1.45 : 0.85)).toFixed(2)));
-    const maxStopDist = Math.max(minStopDist + 1, Number((atr5mRaw * 3.9).toFixed(2)));
+    const maxStopDist = Math.max(
+      minStopDist + 1,
+      mode === 'SURE'
+        ? Math.max(12.5, Number((atr5mRaw * 2.6).toFixed(2)))
+        : Number((atr5mRaw * 3.9).toFixed(2))
+    );
     const sr15m = computeSupportResistance(closed15m);
     const sr1H = computeSupportResistance(closed1H);
     const unswept1HWalls = detectUnsweptMajorWalls1H(closed1H);
