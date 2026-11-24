@@ -1263,5 +1263,72 @@ test('20. 1H Multi-MA breakdown flips Gate 2 BEARISH despite lagging Supertrend 
   assert.notEqual(resTooWide.evaluation.action, 'BUY', 'SURE must reject chased entry whose stop exceeds volatility corridor');
 });
 
+test('21. Gate 7 keeps 2-bar-old 1H climax wall active at 1.40R while allowing >=18h aged pivots with >=1.20R room', () => {
+  const indicators = createAutoPerfectIndicators();
+  const bull = buildBullishDatasets(3780);
+  const price = bull.quote.mid;
+
+  // Widen 5m volatility slightly so riskPoints > $8 (1.40R ~ $12, 1.20R ~ $10)
+  const c5m = bull.datasets.tf5m.candles.map((c, idx) =>
+    idx >= bull.datasets.tf5m.candles.length - 20
+      ? { ...c, high: Number((c.high + 2.4).toFixed(2)), low: Number((c.low - 2.4).toFixed(2)) }
+      : c
+  );
+
+  // Case A: Shooting-star climax high 2 bars before latest closed 1H bar (maxIdx = len - 3) with lower-high inside bars
+  const c1HClimaxOld = bull.datasets.tf1H.candles.map((c) => ({ ...c }));
+  const hLen = c1HClimaxOld.length;
+  const bar3 = c1HClimaxOld[hLen - 3];
+  c1HClimaxOld[hLen - 3] = {
+    ...bar3,
+    low: Number((bar3.open - 1.5).toFixed(2)),
+    high: Number((price + 8.5).toFixed(2)), // range > 1.35x ATR, upper wick > 0.75x ATR
+  };
+  const resClimaxBlocked = evaluateStrictMultiTimeframeStrategy({
+    datasets: { ...bull.datasets, tf1H: makeDataset('1H', c1HClimaxOld), tf5m: makeDataset('5m', c5m) },
+    quote: bull.quote,
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+  assert.equal(resClimaxBlocked.evaluation.mandatoryGates[6].passed, false);
+  assert.ok(resClimaxBlocked.evaluation.mandatoryGates[6].detail.includes('Major 1H resistance'));
+
+  // Case B: Aged >= 18h leftRight=3 pivot sitting ~1.28R overhead (> 1.20R, < 1.40R) must NOT falsely suffocate BUY
+  const baseline = evaluateStrictMultiTimeframeStrategy({
+    datasets: { ...bull.datasets, tf5m: makeDataset('5m', c5m) },
+    quote: bull.quote,
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+  assert.ok(baseline.tradeLevels, 'Expected baseline BUY tradeLevels');
+  const risk = baseline.tradeLevels!.riskPoints;
+  const agedWallPrice = Number((price + risk * 1.28).toFixed(2));
+  const c1HAged = bull.datasets.tf1H.candles.map((c, idx) => {
+    const pivotIdx = hLen - 25;
+    if (idx === pivotIdx) {
+      return { ...c, high: agedWallPrice };
+    }
+    if (idx >= pivotIdx - 3 && idx <= pivotIdx + 3) {
+      return { ...c, high: Math.min(c.high, Number((agedWallPrice - 2.0).toFixed(2))) };
+    }
+    if (idx > pivotIdx + 3) {
+      return { ...c, high: Math.min(c.high, Number((agedWallPrice - 1.0).toFixed(2))) };
+    }
+    return c;
+  });
+  const resAgedAllowed = evaluateStrictMultiTimeframeStrategy({
+    datasets: { ...bull.datasets, tf1H: makeDataset('1H', c1HAged), tf5m: makeDataset('5m', c5m) },
+    quote: bull.quote,
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+  assert.equal(resAgedAllowed.evaluation.mandatoryGates[6].passed, true, `Aged >=18h pivot at 1.28R should not block: ${resAgedAllowed.evaluation.mandatoryGates[6].detail}`);
+  assert.equal(resAgedAllowed.evaluation.action, 'BUY');
+});
+
+
 
 

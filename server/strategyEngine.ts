@@ -131,23 +131,34 @@ function detectSwings(candles: Candle[], leftRight = 3): SwingPoint[] {
  * that have NOT subsequently been swept/invalidated by a newer higher high or lower low.
  * Prevents minor 15M pullback wicks or already-broken 1H pauses from falsely blocking SURE breakouts.
  */
-function detectUnsweptMajorWalls1H(candles: Candle[]): { highs: number[]; lows: number[] } {
+interface MajorWallLevel1H {
+  price: number;
+  ageBars: number;
+  isRecentClimax: boolean;
+}
+
+function detectUnsweptMajorWalls1H(candles: Candle[]): {
+  highs: MajorWallLevel1H[];
+  lows: MajorWallLevel1H[];
+} {
   const win = candles.slice(-160);
   if (win.length < 15) return { highs: [], lows: [] };
   const pivots = detectSwings(win, 3);
-  const highs = new Set<number>();
-  const lows = new Set<number>();
+  const highMap = new Map<number, MajorWallLevel1H>();
+  const lowMap = new Map<number, MajorWallLevel1H>();
   for (const p of pivots) {
+    const price = Number(p.price.toFixed(2));
+    const ageBars = win.length - 1 - p.index;
     if (p.type === 'HIGH') {
       const swept = win.slice(p.index + 1).some((b) => b.high > p.price);
-      if (!swept) highs.add(Number(p.price.toFixed(2)));
+      if (!swept) highMap.set(price, { price, ageBars, isRecentClimax: false });
     } else {
       const swept = win.slice(p.index + 1).some((b) => b.low < p.price);
-      if (!swept) lows.add(Number(p.price.toFixed(2)));
+      if (!swept) lowMap.set(price, { price, ageBars, isRecentClimax: false });
     }
   }
 
-  // Also capture fresh 24h closed 1H blow-off highs/lows with meaningful ATR rejection (without waiting 3h for leftRight=3 pivots)
+  // Also capture fresh 24h closed 1H blow-off/climax highs/lows (without blocking normal trend wicks)
   const atr1H = getLatestAtrSafe(win, 14) ?? 10;
   const recent24 = win.slice(-24);
   if (recent24.length >= 4) {
@@ -161,29 +172,49 @@ function detectUnsweptMajorWalls1H(candles: Candle[]): { highs: number[]; lows: 
     const peakBar = recent24[maxIdx];
     const peakRange = Math.max(0.01, peakBar.high - peakBar.low);
     const peakPullback = Math.max(peakBar.high - lastClosed1H.close, peakBar.high - peakBar.close);
+    const peakClimaxCandle =
+      peakRange >= atr1H * 1.35 &&
+      peakBar.high - peakBar.close >= atr1H * 0.75 &&
+      (peakBar.high - peakBar.close) / peakRange >= 0.35;
     const peakRejected =
-      peakPullback >= atr1H * 0.75 &&
-      (maxIdx <= recent24.length - 2 ||
-        (peakRange >= atr1H * 1.2 && (peakBar.high - peakBar.close) / peakRange >= 0.35));
+      (maxIdx <= recent24.length - 2 && peakPullback >= atr1H * 1.05) ||
+      (peakClimaxCandle && peakPullback >= atr1H * 0.65);
     if (peakRejected) {
-      highs.add(Number(peakBar.high.toFixed(2)));
+      const price = Number(peakBar.high.toFixed(2));
+      const ageBars = recent24.length - 1 - maxIdx;
+      const prev = highMap.get(price);
+      highMap.set(price, {
+        price,
+        ageBars: prev ? Math.min(prev.ageBars, ageBars) : ageBars,
+        isRecentClimax: true,
+      });
     }
 
     const troughBar = recent24[minIdx];
     const troughRange = Math.max(0.01, troughBar.high - troughBar.low);
     const troughBounce = Math.max(lastClosed1H.close - troughBar.low, troughBar.close - troughBar.low);
+    const troughClimaxCandle =
+      troughRange >= atr1H * 1.35 &&
+      troughBar.close - troughBar.low >= atr1H * 0.75 &&
+      (troughBar.close - troughBar.low) / troughRange >= 0.35;
     const troughRejected =
-      troughBounce >= atr1H * 0.75 &&
-      (minIdx <= recent24.length - 2 ||
-        (troughRange >= atr1H * 1.2 && (troughBar.close - troughBar.low) / troughRange >= 0.35));
+      (minIdx <= recent24.length - 2 && troughBounce >= atr1H * 1.05) ||
+      (troughClimaxCandle && troughBounce >= atr1H * 0.65);
     if (troughRejected) {
-      lows.add(Number(troughBar.low.toFixed(2)));
+      const price = Number(troughBar.low.toFixed(2));
+      const ageBars = recent24.length - 1 - minIdx;
+      const prev = lowMap.get(price);
+      lowMap.set(price, {
+        price,
+        ageBars: prev ? Math.min(prev.ageBars, ageBars) : ageBars,
+        isRecentClimax: true,
+      });
     }
   }
 
   return {
-    highs: Array.from(highs).sort((a, b) => a - b),
-    lows: Array.from(lows).sort((a, b) => b - a),
+    highs: Array.from(highMap.values()).sort((a, b) => a.price - b.price),
+    lows: Array.from(lowMap.values()).sort((a, b) => b.price - a.price),
   };
 }
 
@@ -1238,21 +1269,20 @@ export function evaluateStrictMultiTimeframeStrategy(
   const fullClusterBear1H = emaBear1H && smaBear1H && stDir1H < 0 && longTermBear1H;
 
   const minAdx1H = mode === 'SURE' ? 22 : 18;
+  const diSpreadBull = plusDI1H != null && minusDI1H != null ? plusDI1H - minusDI1H : -999;
+  const diSpreadBear = plusDI1H != null && minusDI1H != null ? minusDI1H - plusDI1H : -999;
   const adxOkStandard1H = adxVal1H != null && adxVal1H >= minAdx1H;
   const adxOkReversal1H =
     adxVal1H != null &&
-    adxVal1H >= (mode === 'SURE' ? 19.5 : 17.5) &&
-    ((maBreakoutBull1H && plusDI1H != null && minusDI1H != null && plusDI1H > minusDI1H) ||
-      (maBreakdownBear1H && plusDI1H != null && minusDI1H != null && minusDI1H > plusDI1H));
+    ((maBreakoutBull1H &&
+      diSpreadBull > 0 &&
+      adxVal1H >= (diSpreadBull >= 2.0 && emaBull1H ? 17.5 : mode === 'SURE' ? 19.0 : 17.5)) ||
+      (maBreakdownBear1H &&
+        diSpreadBear > 0 &&
+        adxVal1H >= (diSpreadBear >= 2.0 && emaBear1H ? 17.5 : mode === 'SURE' ? 19.0 : 17.5)));
   const adxOk1H = adxOkStandard1H || adxOkReversal1H;
-  const dmiBull1H =
-    plusDI1H != null &&
-    minusDI1H != null &&
-    (plusDI1H > minusDI1H + 1.5 || (maBreakoutBull1H && plusDI1H > minusDI1H));
-  const dmiBear1H =
-    plusDI1H != null &&
-    minusDI1H != null &&
-    (minusDI1H > plusDI1H + 1.5 || (maBreakdownBear1H && minusDI1H > plusDI1H));
+  const dmiBull1H = diSpreadBull > 1.5 || (maBreakoutBull1H && diSpreadBull > 0);
+  const dmiBear1H = diSpreadBear > 1.5 || (maBreakdownBear1H && diSpreadBear > 0);
 
   let bias1H: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
   if (bullCluster1H && dmiBull1H && adxOk1H) bias1H = 'BULLISH';
@@ -1704,11 +1734,11 @@ export function evaluateStrictMultiTimeframeStrategy(
       ...sr1H.resistanceLevels.map((r) => translateToSpot(datasets.tf1H, r)),
     ].sort((a, b) => a - b);
     const macroWallResistances = unswept1HWalls.highs
-      .map((r) => translateToSpot(datasets.tf1H, r))
-      .sort((a, b) => a - b);
+      .map((w) => ({ ...w, price: translateToSpot(datasets.tf1H, w.price) }))
+      .sort((a, b) => a.price - b.price);
     const macroWallSupports = unswept1HWalls.lows
-      .map((s) => translateToSpot(datasets.tf1H, s))
-      .sort((a, b) => b - a);
+      .map((w) => ({ ...w, price: translateToSpot(datasets.tf1H, w.price) }))
+      .sort((a, b) => b.price - a.price);
 
     const recent5mLows = detectSwings(closed5m.slice(-36), 2)
       .filter((s) => s.type === 'LOW')
@@ -1759,11 +1789,13 @@ export function evaluateStrictMultiTimeframeStrategy(
       const maxTarget = spotEntry + stopDistance * 2.8;
       const targetPool = Array.from(new Set([...spotResistances5m, ...majorResistances])).sort((a, b) => a - b);
       const structuralTarget = targetPool.find((r) => r >= minTarget && r <= maxTarget);
-      // Reject if an untouched major 1H resistance wall blocks clear upside (1.40R in SURE, 1.15R in ANALYSIS)
-      const wallClearanceR = mode === 'SURE' ? 1.4 : 1.15;
-      const blockingWall = macroWallResistances.find(
-        (r) => r > spotEntry + atr5mRaw * 0.85 && r < spotEntry + stopDistance * wallClearanceR
-      );
+      // Reject if an untouched major 1H resistance wall blocks clear upside
+      // (1.40R for fresh <18h/climax walls or 1.20R for older >=18h 1H pivots in SURE, 1.15R in ANALYSIS)
+      const blockingWall = macroWallResistances.find((w) => {
+        const wallClearanceR =
+          mode === 'SURE' ? (w.ageBars < 18 || w.isRecentClimax ? 1.4 : 1.2) : 1.15;
+        return w.price > spotEntry + atr5mRaw * 0.85 && w.price < spotEntry + stopDistance * wallClearanceR;
+      })?.price;
       const defaultRrMult = stopDistance > Math.max(8, atr5mRaw * 1.7) ? 1.6 : 1.8;
       const singleTp = Number((structuralTarget ?? spotEntry + stopDistance * defaultRrMult).toFixed(2));
       const rrNum = stopDistance > 0 ? (singleTp - spotEntry) / stopDistance : 0;
@@ -1833,10 +1865,11 @@ export function evaluateStrictMultiTimeframeStrategy(
       const maxTarget = spotEntry - stopDistance * 2.8;
       const targetPool = Array.from(new Set([...spotSupports5m, ...majorSupports])).sort((a, b) => b - a);
       const structuralTarget = targetPool.find((s) => s <= minTarget && s >= maxTarget);
-      const wallClearanceR = mode === 'SURE' ? 1.4 : 1.15;
-      const blockingWall = macroWallSupports.find(
-        (s) => s < spotEntry - atr5mRaw * 0.85 && s > spotEntry - stopDistance * wallClearanceR
-      );
+      const blockingWall = macroWallSupports.find((w) => {
+        const wallClearanceR =
+          mode === 'SURE' ? (w.ageBars < 18 || w.isRecentClimax ? 1.4 : 1.2) : 1.15;
+        return w.price < spotEntry - atr5mRaw * 0.85 && w.price > spotEntry - stopDistance * wallClearanceR;
+      })?.price;
       const defaultRrMult = stopDistance > Math.max(8, atr5mRaw * 1.7) ? 1.6 : 1.8;
       const singleTp = Number((structuralTarget ?? spotEntry - stopDistance * defaultRrMult).toFixed(2));
       const rrNum = stopDistance > 0 ? (spotEntry - singleTp) / stopDistance : 0;
