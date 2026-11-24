@@ -1370,7 +1370,85 @@ test('22. Transitional 1H NEUTRAL reflects real sub-timeframe setup readiness (3
   );
 });
 
+test('23. 15M structure direction switches immediately to BEARISH on BEARISH CHoCH/BOS even if prior swings had HH/HL', () => {
+  const indicators = createAutoPerfectIndicators();
+  const bull = buildBullishDatasets(3650);
+  const c15m = bull.datasets.tf15m.candles.map((c) => ({ ...c }));
+  const n = c15m.length;
+  const base = c15m[n - 35].close;
 
+  // Build explicit HH + HL swings then dump below lastSwingLow at the tail
+  for (let i = n - 34; i <= n - 26; i++) {
+    const step = i <= n - 30 ? -(i - (n - 34)) * 2.5 : -10 + (i - (n - 30)) * 2.5;
+    const p = Number((base + step).toFixed(2));
+    c15m[i] = { ...c15m[i], open: p, high: p + 0.8, low: p - 0.8, close: p };
+  }
+  for (let i = n - 25; i <= n - 17; i++) {
+    const step = i <= n - 21 ? (i - (n - 25)) * 3.0 : 12 - (i - (n - 21)) * 2.5;
+    const p = Number((base + step).toFixed(2));
+    c15m[i] = { ...c15m[i], open: p, high: p + 0.8, low: p - 0.8, close: p };
+  }
+  for (let i = n - 16; i <= n - 10; i++) {
+    const step = i <= n - 13 ? -(i - (n - 16)) * 2.0 : -6 + (i - (n - 13)) * 5.0; // HL > -10
+    const p = Number((base + step).toFixed(2));
+    c15m[i] = { ...c15m[i], open: p, high: p + 0.8, low: p - 0.8, close: p };
+  }
+  for (let i = n - 9; i <= n - 5; i++) {
+    const p = Number((base + 16 - Math.abs(i - (n - 7)) * 2.5).toFixed(2)); // HH > +12
+    c15m[i] = { ...c15m[i], open: p, high: p + 0.8, low: p - 0.8, close: p };
+  }
+  // Now break sharply below HL (-6)
+  for (let i = n - 4; i < n; i++) {
+    const p = Number((base - 4 - (i - (n - 4)) * 4.5).toFixed(2));
+    c15m[i] = { ...c15m[i], open: p + 2, high: p + 2.5, low: p - 0.5, close: p };
+  }
 
+  const res = evaluateStrictMultiTimeframeStrategy({
+    datasets: { ...bull.datasets, tf15m: makeDataset('15m', c15m) },
+    quote: {
+      ...bull.quote,
+      bid: Number((c15m[n - 1].close - 0.2).toFixed(3)),
+      ask: Number((c15m[n - 1].close + 0.4).toFixed(3)),
+      mid: Number((c15m[n - 1].close + 0.1).toFixed(3)),
+    },
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
 
+  assert.equal(res.evaluation.structure15M.direction, 'BEARISH');
+});
 
+test('24. Bearish 5M setup allows healthy downtrend RSI (e.g. 32-37) symmetric with bullish window instead of rejecting below 38', () => {
+  const indicators = createAutoPerfectIndicators();
+  const bear = buildBearishDatasets(3780);
+  const c5m = bear.datasets.tf5m.candles.map((c) => ({ ...c }));
+  // Nudge last 12 5m bars cleanly downward so 5m RSI sits ~33-36 without extreme oversold (<26)
+  for (let i = c5m.length - 12; i < c5m.length - 2; i++) {
+    const drop = (i - (c5m.length - 13)) * 0.45;
+    c5m[i] = {
+      ...c5m[i],
+      open: Number((c5m[i].open - drop * 0.6).toFixed(2)),
+      high: Number((c5m[i].high - drop * 0.5).toFixed(2)),
+      low: Number((c5m[i].low - drop).toFixed(2)),
+      close: Number((c5m[i].close - drop).toFixed(2)),
+    };
+  }
+  const rsiSeries = rsiArray(
+    c5m.map((c) => c.close),
+    14
+  );
+  const latestRsi = rsiSeries[rsiSeries.length - 1]!;
+  assert.ok(latestRsi >= 26 && latestRsi < 38, `Expected 5M RSI in [26, 38), got ${latestRsi.toFixed(1)}`);
+
+  const res = evaluateStrictMultiTimeframeStrategy({
+    datasets: { ...bear.datasets, tf5m: makeDataset('5m', c5m) },
+    quote: makeQuote(c5m[c5m.length - 1].close - 0.1),
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+
+  const gate4 = res.evaluation.mandatoryGates[3];
+  assert.equal(gate4.passed, true, `Gate 4 should pass at bearish 5M RSI ${latestRsi.toFixed(1)}, got: ${gate4.detail}`);
+});

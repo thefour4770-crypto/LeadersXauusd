@@ -355,19 +355,17 @@ function detectMarketStructure15m(candles: Candle[]): {
   }
 
   let direction: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
-  if (
-    bosDetected === 'BULLISH' ||
-    chochDetected === 'BULLISH' ||
-    (higherHighs && higherLows) ||
-    (emaBullTrend && (higherHighs || higherLows))
-  ) {
+  if (bosDetected === 'BULLISH' || chochDetected === 'BULLISH') {
     direction = 'BULLISH';
-  } else if (
-    bosDetected === 'BEARISH' ||
-    chochDetected === 'BEARISH' ||
-    (lowerHighs && lowerLows) ||
-    (emaBearTrend && (lowerHighs || lowerLows))
-  ) {
+  } else if (bosDetected === 'BEARISH' || chochDetected === 'BEARISH') {
+    direction = 'BEARISH';
+  } else if (higherHighs && higherLows && latestClose > lastSwingLow) {
+    direction = 'BULLISH';
+  } else if (lowerHighs && lowerLows && latestClose < lastSwingHigh) {
+    direction = 'BEARISH';
+  } else if (emaBullTrend && (higherHighs || higherLows)) {
+    direction = 'BULLISH';
+  } else if (emaBearTrend && (lowerHighs || lowerLows)) {
     direction = 'BEARISH';
   }
 
@@ -1495,7 +1493,7 @@ export function evaluateStrictMultiTimeframeStrategy(
       (telemetryDir === 'BULLISH'
         ? (rsi5m == null || (rsi5m >= 40 && rsi5m <= 74)) && bbPos5m <= 0.94
         : telemetryDir === 'BEARISH'
-        ? (rsi5m == null || (rsi5m >= 38 && rsi5m <= 60)) && bbPos5m >= 0.06
+        ? (rsi5m == null || (rsi5m >= 26 && rsi5m <= 60)) && bbPos5m >= 0.06
         : false));
 
   const retestTouchTol = atr5mRaw * 0.18;
