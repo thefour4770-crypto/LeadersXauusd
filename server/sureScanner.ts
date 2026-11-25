@@ -183,7 +183,7 @@ export async function reconcileMissedSpotCandlesForActiveTrade(): Promise<SureSi
       stats: computeSureHistoryStats(nextHistory),
     };
     broadcast('sure_outcome', { closedSignal: updated });
-    void sendSureOutcomeWebPush(updated);
+    void sendSureOutcomeWebPush(updated).catch(() => {});
   }
 
   return updated;
@@ -242,10 +242,10 @@ async function executeOutcomeCheckAtPrice(
   };
 
   broadcast('sure_outcome', { closedSignal: updated });
-  void sendSureOutcomeWebPush(updated);
+  void sendSureOutcomeWebPush(updated).catch(() => {});
 
   setTimeout(() => {
-    void runSureSignalScan();
+    void runSureSignalScan().catch(() => {});
   }, 3_500);
 
   return true;
@@ -623,7 +623,7 @@ export async function runSureSignalScan(): Promise<SureSignalScanStatus> {
 
       broadcast(emittedNewSignal ? 'sure_signal' : 'sure_status', { newSignal: emittedNewSignal });
       if (emittedNewSignal) {
-        void sendSureSignalWebPush(emittedNewSignal);
+        void sendSureSignalWebPush(emittedNewSignal).catch(() => {});
       }
       return latestStatus;
     } catch (err) {
@@ -803,7 +803,7 @@ function handleLiveQuoteForSureLifecycle(quote: MarketQuote): void {
   latestStatus.latestPrice = quote.mid;
   latestStatus.monitoringMode = quote.freshness === 'LIVE' ? 'REALTIME_SPOT_BBO' : 'DELAYED_POLL';
   if (latestStatus.tradeLocked || latestStatus.activeSignal?.status === 'ACTIVE') {
-    void checkAndCloseActiveSignalAtPrice(quote.mid);
+    void checkAndCloseActiveSignalAtPrice(quote.mid).catch(() => {});
   }
 }
 
@@ -815,14 +815,15 @@ export function startSureSignalBackgroundScanner(): void {
 
   // Recover persistent state & check any missed Spot bars immediately on server startup
   void reconcileMissedSpotCandlesForActiveTrade()
-    .then(() => getSureSignalStatus())
+    .catch(() => null)
+    .then(() => getSureSignalStatus().catch(() => latestStatus))
     .finally(() => {
       setTimeout(() => {
-        void runSureSignalScan();
+        void runSureSignalScan().catch(() => {});
       }, 3_000);
     });
 
   scannerTimer = setInterval(() => {
-    void runSureSignalScan();
+    void runSureSignalScan().catch(() => {});
   }, SURE_SCAN_INTERVAL_MS);
 }

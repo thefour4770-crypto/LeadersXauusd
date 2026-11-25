@@ -26,6 +26,8 @@ import {
   smaArray,
   supertrendSeries,
 } from '../server/indicators.ts';
+import { isFreshSpotDataset } from '../server/analyzer.ts';
+import { validateCandleSeriesIntegrity } from '../server/marketData.ts';
 import {
   evaluateCandleOutcome,
   evaluateStrictMultiTimeframeStrategy,
@@ -1511,4 +1513,210 @@ test('26. Gates 4, 5, and 6 report true 5M/1M/Momentum readiness independently w
   assert.equal(res.evaluation.mandatoryGates[5].passed, true, 'Gate 6 (Vol/Mom) should reflect aligned momentum');
   assert.equal(res.evaluation.action, 'NO TRADE');
 });
+
+test('27. SURE Gate 5 requires aligned 1M Supertrend and rejects weak 1M+5M volume even when EMA9 > EMA21', () => {
+  const indicators = createAutoPerfectIndicators();
+
+  // Subcase A: Weak combined volume (1M volRatio < 0.55 and 5M volRatio ~0.75 < 0.9) must fail SURE Gate 5
+  const bullWeakVol = buildBullishDatasets(3780);
+  const c1mWeak = bullWeakVol.datasets.tf1m.candles.map((c, idx, arr) =>
+    idx === arr.length - 1 ? { ...c, volume: 650 } : { ...c, volume: 2200 }
+  );
+  const c5mWeak = bullWeakVol.datasets.tf5m.candles.map((c, idx, arr) =>
+    idx === arr.length - 1 ? { ...c, volume: 1500 } : { ...c, volume: 2000 }
+  );
+  const resWeakVol = evaluateStrictMultiTimeframeStrategy({
+    datasets: {
+      ...bullWeakVol.datasets,
+      tf1m: makeDataset('1m', c1mWeak),
+      tf5m: makeDataset('5m', c5mWeak),
+    },
+    quote: bullWeakVol.quote,
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+
+  assert.equal(resWeakVol.evaluation.confirmation1M.emaAligned, true);
+  assert.equal(resWeakVol.evaluation.confirmation1M.supertrendAligned, true);
+  assert.equal(resWeakVol.evaluation.confirmation1M.volumeOk, false);
+  assert.equal(resWeakVol.evaluation.confirmation1M.confirmed, false);
+  assert.notEqual(resWeakVol.evaluation.action, 'BUY');
+
+  // Subcase B: Opposing 1M Supertrend (ST=-1 while EMA9>EMA21) must fail SURE Gate 5
+  const bullOpposingSt = buildBullishDatasets(3780);
+  const c1mStOppose = bullOpposingSt.datasets.tf1m.candles.map((c) => ({ ...c }));
+  const n1m = c1mStOppose.length;
+  // Create a sharp temporary spike 6 bars ago then dip slightly below ST upper band, while slow EMA21 lags below EMA9
+  for (let i = n1m - 12; i < n1m - 5; i++) {
+    c1mStOppose[i] = {
+      ...c1mStOppose[i],
+      open: c1mStOppose[i].open + 1.8,
+      high: c1mStOppose[i].high + 2.4,
+      low: c1mStOppose[i].low + 1.5,
+      close: c1mStOppose[i].close + 2.1,
+    };
+  }
+  const peakHigh = c1mStOppose[n1m - 6].high;
+  for (let i = n1m - 5; i < n1m - 2; i++) {
+    const dropClose = Number((peakHigh - 4.8).toFixed(2));
+    c1mStOppose[i] = {
+      ...c1mStOppose[i],
+      open: dropClose + 0.4,
+      high: dropClose + 0.6,
+      low: dropClose - 0.5,
+      close: dropClose,
+    };
+  }
+  // Tiny bounce on last 2 bars stays under upper ST band so stDir1m = -1 while ema9 >= ema21 or fast cross occurs
+  const stSeries = supertrendSeries(c1mStOppose, 10, 3);
+  if (stSeries.dir[n1m - 1] > 0) {
+    // Force final bar close just below lower/mid threshold only if needed; check dir is -1
+    const upperBand = stSeries.line[n1m - 1] ?? c1mStOppose[n1m - 1].close;
+    c1mStOppose[n1m - 1] = {
+      ...c1mStOppose[n1m - 1],
+      open: Number((upperBand - 1.2).toFixed(2)),
+      close: Number((upperBand - 0.4).toFixed(2)),
+      high: Number((upperBand - 0.1).toFixed(2)),
+      low: Number((upperBand - 1.5).toFixed(2)),
+    };
+  }
+  const resOpposeSt = evaluateStrictMultiTimeframeStrategy({
+    datasets: {
+      ...bullOpposingSt.datasets,
+      tf1m: makeDataset('1m', c1mStOppose),
+    },
+    quote: makeQuote(c1mStOppose[n1m - 1].close + 0.1),
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+
+  assert.equal(resOpposeSt.evaluation.confirmation1M.supertrendAligned, false);
+  assert.equal(resOpposeSt.evaluation.confirmation1M.confirmed, false);
+  assert.notEqual(resOpposeSt.evaluation.action, 'BUY');
+});
+
+test('28. SURE Gate 6 protects SL beyond recent 10-bar 5M swing floor and blocks chased entries exceeding maxStopDist', () => {
+  const indicators = createAutoPerfectIndicators();
+
+  // Case A: Unbroken 5M low 7 bars back at -7.5 below spotEntry must pull BUY SL below that floor
+  const bullProtected = buildBullishDatasets(3780);
+  const c5mA = bullProtected.datasets.tf5m.candles.map((c) => ({ ...c }));
+  const spikeFloor = Number((bullProtected.quote.mid - 7.5).toFixed(2));
+  c5mA[c5mA.length - 7] = {
+    ...c5mA[c5mA.length - 7],
+    low: spikeFloor,
+  };
+  const resProtected = evaluateStrictMultiTimeframeStrategy({
+    datasets: { ...bullProtected.datasets, tf5m: makeDataset('5m', c5mA) },
+    quote: bullProtected.quote,
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+
+  assert.equal(resProtected.evaluation.action, 'BUY', `Expected BUY, got blockers: ${resProtected.evaluation.blockers.join(' | ')}`);
+  assert.ok(resProtected.tradeLevels != null);
+  assert.ok(
+    resProtected.tradeLevels!.stopLoss < spikeFloor,
+    `Expected BUY SL (${resProtected.tradeLevels!.stopLoss}) to protect below 10-bar 5M low (${spikeFloor})`
+  );
+
+  // Case B: Chased BUY far above unbroken recent 10-bar 5M low (-14.5 away) exceeds maxStopDist and must be blocked
+  const bullChased = buildBullishDatasets(3780);
+  const c5mB = bullChased.datasets.tf5m.candles.map((c) => ({ ...c }));
+  c5mB[c5mB.length - 7] = {
+    ...c5mB[c5mB.length - 7],
+    low: Number((bullChased.quote.mid - 14.5).toFixed(2)),
+  };
+  const resChased = evaluateStrictMultiTimeframeStrategy({
+    datasets: { ...bullChased.datasets, tf5m: makeDataset('5m', c5mB) },
+    quote: bullChased.quote,
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+
+  assert.notEqual(resChased.evaluation.action, 'BUY', 'SURE must reject chased entry whose protected SL exceeds maxStopDist');
+  assert.equal(resChased.tradeLevels, undefined);
+});
+
+test('29. isFreshSpotDataset and validateCandleSeriesIntegrity reject fragmented intraday Spot gaps while passing contiguous streams', () => {
+  const bull = buildBullishDatasets(3780);
+  const contiguous1m = bull.datasets.tf1m;
+  assert.equal(isFreshSpotDataset(contiguous1m, '1m', 240, NOW_SEC, 60), true);
+
+  // Inject server-sleep holes into recent Spot 1m tail (missing 30m+ blocks)
+  const gappedCandles = contiguous1m.candles.map((c, idx, arr) => {
+    if (idx < arr.length - 10) return { ...c, time: c.time - 3600 };
+    if (idx < arr.length - 5) return { ...c, time: c.time - 1800 };
+    return c;
+  });
+  const gappedDs = makeDataset('1m', gappedCandles);
+  assert.equal(
+    isFreshSpotDataset(gappedDs, '1m', 240, NOW_SEC, 60),
+    false,
+    'Fragmented live-spot-1m history must fall back to continuous GC=F'
+  );
+
+  // validateCandleSeriesIntegrity must flag >= 4h non-weekend intraday gaps across recent 24 bars
+  const multiHourGapped: Candle[] = [];
+  let t = NOW_SEC - 200 * 60;
+  for (let i = 0; i < 40; i++) {
+    if (i === 25 || i === 30 || i === 35) {
+      t += 5 * 3600; // 3 distinct 5-hour intraday outages
+    } else {
+      t += 60;
+    }
+    multiHourGapped.push({ time: t, open: 3780, high: 3781, low: 3779, close: 3780.5, volume: 100 });
+  }
+  const integrity = validateCandleSeriesIntegrity(multiHourGapped, '1m', t + 30, 600);
+  assert.ok(integrity.gapWarnings.length > 0, 'Expected non-weekend multi-hour intraday gaps to produce a gapWarning');
+});
+
+test('30. validateFeedIntegrity matches timestamp-aligned prior 15m/1m bars for futures basis even if latest Spot bar is delayed', () => {
+  const indicators = createAutoPerfectIndicators();
+  const bull = buildBullishDatasets(3780);
+  const OFFSET = 24.5;
+
+  const shifted1H = bull.datasets.tf1H.candles.map((c) => ({
+    ...c,
+    open: Number((c.open + OFFSET).toFixed(2)),
+    high: Number((c.high + OFFSET).toFixed(2)),
+    low: Number((c.low + OFFSET).toFixed(2)),
+    close: Number((c.close + OFFSET).toFixed(2)),
+  }));
+  const shifted15m = bull.datasets.tf15m.candles.map((c) => ({
+    ...c,
+    open: Number((c.open + OFFSET).toFixed(2)),
+    high: Number((c.high + OFFSET).toFixed(2)),
+    low: Number((c.low + OFFSET).toFixed(2)),
+    close: Number((c.close + OFFSET).toFixed(2)),
+  }));
+
+  // Drop the last 12 minutes of Spot 1m bars so finestFuturesEntry's latest bar falls outside Spot 1m,
+  // forcing backward lookup onto the previous 15m bar for basis alignment (still fresh within maxAge? test direct gap between latest 15m close and spot tail)
+  const truncatedSpot1m = bull.datasets.tf1m.candles.slice(0, -12);
+  const res = evaluateStrictMultiTimeframeStrategy({
+    datasets: {
+      ...bull.datasets,
+      tf1H: makeDataset('1H', shifted1H, 'Yahoo Finance COMEX Gold (GC=F)'),
+      tf15m: makeDataset('15m', shifted15m, 'Yahoo Finance COMEX Gold (GC=F)'),
+      tf1m: makeDataset('1m', truncatedSpot1m),
+    },
+    quote: makeQuote(bull.quote.mid + 6.0), // Even if live quote moved differently from truncated 1m tail
+    indicatorConfigs: indicators,
+    mode: 'ANALYSIS',
+    nowMs: NOW_MS,
+  });
+
+  assert.ok(
+    res.evaluation.feedIntegrity.basisDiffUsd != null &&
+      res.evaluation.feedIntegrity.basisDiffUsd >= 15 &&
+      res.evaluation.feedIntegrity.basisDiffUsd <= 30,
+    `Expected backward bar-aligned basis near +$${OFFSET}, got ${res.evaluation.feedIntegrity.basisDiffUsd}`
+  );
+});
+
 

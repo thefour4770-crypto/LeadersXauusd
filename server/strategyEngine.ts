@@ -137,7 +137,10 @@ interface MajorWallLevel1H {
   isRecentClimax: boolean;
 }
 
-function detectUnsweptMajorWalls1H(candles: Candle[]): {
+function detectUnsweptMajorWalls1H(
+  candles: Candle[],
+  liveProbePrice?: number
+): {
   highs: MajorWallLevel1H[];
   lows: MajorWallLevel1H[];
 } {
@@ -163,6 +166,7 @@ function detectUnsweptMajorWalls1H(candles: Candle[]): {
   const recent24 = win.slice(-24);
   if (recent24.length >= 4) {
     const lastClosed1H = recent24[recent24.length - 1];
+    const hasLiveProbe = typeof liveProbePrice === 'number' && Number.isFinite(liveProbePrice) && liveProbePrice > 0;
     let maxIdx = 0;
     let minIdx = 0;
     for (let i = 1; i < recent24.length; i++) {
@@ -171,14 +175,21 @@ function detectUnsweptMajorWalls1H(candles: Candle[]): {
     }
     const peakBar = recent24[maxIdx];
     const peakRange = Math.max(0.01, peakBar.high - peakBar.low);
-    const peakPullback = Math.max(peakBar.high - lastClosed1H.close, peakBar.high - peakBar.close);
+    const livePeakPullback = hasLiveProbe ? peakBar.high - liveProbePrice : 0;
+    const closedPeakPullback = Math.max(
+      peakBar.high - lastClosed1H.close,
+      peakBar.high - peakBar.close
+    );
     const peakClimaxCandle =
       peakRange >= atr1H * 1.35 &&
       peakBar.high - peakBar.close >= atr1H * 0.75 &&
       (peakBar.high - peakBar.close) / peakRange >= 0.35;
     const peakRejected =
-      (maxIdx <= recent24.length - 2 && peakPullback >= atr1H * 1.05) ||
-      (peakClimaxCandle && peakPullback >= atr1H * 0.65);
+      (maxIdx <= recent24.length - 2 && closedPeakPullback >= atr1H * 1.05) ||
+      (peakClimaxCandle && closedPeakPullback >= atr1H * 0.65) ||
+      (hasLiveProbe &&
+        livePeakPullback >= Math.max(8.0, atr1H * 1.1) &&
+        closedPeakPullback >= Math.max(2.0, atr1H * 0.2));
     if (peakRejected) {
       const price = Number(peakBar.high.toFixed(2));
       const ageBars = recent24.length - 1 - maxIdx;
@@ -192,14 +203,21 @@ function detectUnsweptMajorWalls1H(candles: Candle[]): {
 
     const troughBar = recent24[minIdx];
     const troughRange = Math.max(0.01, troughBar.high - troughBar.low);
-    const troughBounce = Math.max(lastClosed1H.close - troughBar.low, troughBar.close - troughBar.low);
+    const liveTroughBounce = hasLiveProbe ? liveProbePrice - troughBar.low : 0;
+    const closedTroughBounce = Math.max(
+      lastClosed1H.close - troughBar.low,
+      troughBar.close - troughBar.low
+    );
     const troughClimaxCandle =
       troughRange >= atr1H * 1.35 &&
       troughBar.close - troughBar.low >= atr1H * 0.75 &&
       (troughBar.close - troughBar.low) / troughRange >= 0.35;
     const troughRejected =
-      (minIdx <= recent24.length - 2 && troughBounce >= atr1H * 1.05) ||
-      (troughClimaxCandle && troughBounce >= atr1H * 0.65);
+      (minIdx <= recent24.length - 2 && closedTroughBounce >= atr1H * 1.05) ||
+      (troughClimaxCandle && closedTroughBounce >= atr1H * 0.65) ||
+      (hasLiveProbe &&
+        liveTroughBounce >= Math.max(8.0, atr1H * 1.1) &&
+        closedTroughBounce >= Math.max(2.0, atr1H * 0.2));
     if (troughRejected) {
       const price = Number(troughBar.low.toFixed(2));
       const ageBars = recent24.length - 1 - minIdx;
@@ -664,28 +682,36 @@ function validateFeedIntegrity(params: {
   let basisDiffUsd: number | null = null;
   let basisDiffPct: number | null = null;
   if (usesFutures && finestFuturesEntry && spotPrice != null && futuresPrice != null && futuresBar) {
+    let refFuturesForBasis = futuresPrice;
     let refSpotForBasis = spotPrice;
     if (
       finestFuturesEntry.ds.timeframe !== '1m' &&
       !datasets.tf1m.candleSource.includes('GC=F') &&
       closedSets.tf1m.length > 0
     ) {
-      const targetSpotTime =
-        futuresBar.time + TIMEFRAME_SECONDS[finestFuturesEntry.ds.timeframe] - 60;
-      let bestSpotBar: Candle | null = null;
-      let bestDiff = 600;
-      for (const sBar of closedSets.tf1m) {
-        const diff = Math.abs(sBar.time - targetSpotTime);
-        if (diff <= bestDiff) {
-          bestDiff = diff;
-          bestSpotBar = sBar;
+      const tfSec = TIMEFRAME_SECONDS[finestFuturesEntry.ds.timeframe];
+      const fCandles = finestFuturesEntry.candles;
+      const maxSearch = Math.min(6, fCandles.length);
+      for (let k = 1; k <= maxSearch; k++) {
+        const probeFBar = fCandles[fCandles.length - k];
+        const targetSpotTime = probeFBar.time + tfSec - 60;
+        let bestSpotBar: Candle | null = null;
+        let bestDiff = 600;
+        for (const sBar of closedSets.tf1m) {
+          const diff = Math.abs(sBar.time - targetSpotTime);
+          if (diff <= bestDiff) {
+            bestDiff = diff;
+            bestSpotBar = sBar;
+          }
+        }
+        if (bestSpotBar) {
+          refFuturesForBasis = Number(probeFBar.close.toFixed(2));
+          refSpotForBasis = Number(bestSpotBar.close.toFixed(2));
+          break;
         }
       }
-      if (bestSpotBar) {
-        refSpotForBasis = Number(bestSpotBar.close.toFixed(2));
-      }
     }
-    basisDiffUsd = Number((futuresPrice - refSpotForBasis).toFixed(2));
+    basisDiffUsd = Number((refFuturesForBasis - refSpotForBasis).toFixed(2));
     basisDiffPct = Number(((basisDiffUsd / spotPrice) * 100).toFixed(3));
     if (Math.abs(basisDiffPct) > maxBasisDiffPct) {
       blockingReasons.push(
@@ -1656,6 +1682,8 @@ export function evaluateStrictMultiTimeframeStrategy(
   const volumeOk1m =
     lastClosed1m.volume === 0 || volInfo1m.volumeType === 'TICK_PROXY'
       ? barRange1m >= atr5mRaw * 0.1 || volRatio5m >= 0.65
+      : mode === 'SURE'
+      ? volRatio1m >= 0.55 || (volRatio1m >= 0.3 && volRatio5m >= 0.9)
       : volRatio1m >= 0.55 || volRatio5m >= 0.7;
   const candleDirMatches =
     (telemetryDir === 'BULLISH' && closedBullCandle) || (telemetryDir === 'BEARISH' && closedBearCandle);
@@ -1671,13 +1699,13 @@ export function evaluateStrictMultiTimeframeStrategy(
     telemetryDir !== 'NEUTRAL' &&
     candleDirMatches &&
     futuresSpotDriftOk &&
-    (emaAligned1m || supertrendAligned1m) &&
-    dmiAligned1m &&
     (mode === 'ANALYSIS'
-      ? rsiMomentumOk1m || macdMomentumOk1m
-      : rsiMomentumOk1m &&
+      ? (emaAligned1m || supertrendAligned1m) && dmiAligned1m && (rsiMomentumOk1m || macdMomentumOk1m)
+      : emaAligned1m &&
+        supertrendAligned1m &&
+        dmiAligned1m &&
+        rsiMomentumOk1m &&
         macdMomentumOk1m &&
-        ((emaAligned1m && supertrendAligned1m) || emaAligned1m) &&
         volumeOk1m);
 
   let score1m = 0;
@@ -1757,7 +1785,11 @@ export function evaluateStrictMultiTimeframeStrategy(
     );
     const sr15m = computeSupportResistance(closed15m);
     const sr1H = computeSupportResistance(closed1H);
-    const unswept1HWalls = detectUnsweptMajorWalls1H(closed1H);
+    const liveProbe1HScale =
+      datasets.tf1H.candleSource.includes('GC=F') && feedIntegrity.basisDiffUsd != null
+        ? Number((spotEntry + feedIntegrity.basisDiffUsd).toFixed(2))
+        : spotEntry;
+    const unswept1HWalls = detectUnsweptMajorWalls1H(closed1H, liveProbe1HScale);
     const spotSupports5m = sr5m.supportLevels.map((s) => translateToSpot(datasets.tf5m, s)).sort((a, b) => b - a);
     const spotResistances5m = sr5m.resistanceLevels.map((r) => translateToSpot(datasets.tf5m, r)).sort((a, b) => a - b);
     const majorSupports = [
@@ -1786,6 +1818,16 @@ export function evaluateStrictMultiTimeframeStrategy(
     const spotSweepLevel =
       sweepRetest5m.sweepLevel != null ? translateToSpot(datasets.tf5m, sweepRetest5m.sweepLevel) : null;
 
+    const recent10Bars5m = closed5m.slice(-10);
+    const recent10Floor5m =
+      recent10Bars5m.length > 0
+        ? Math.min(...recent10Bars5m.map((c) => translateToSpot(datasets.tf5m, c.low)))
+        : null;
+    const recent10Ceiling5m =
+      recent10Bars5m.length > 0
+        ? Math.max(...recent10Bars5m.map((c) => translateToSpot(datasets.tf5m, c.high)))
+        : null;
+
     if (candidateDirection === 'BUY') {
       const sweepFloor =
         sweepMatchesDir &&
@@ -1807,7 +1849,7 @@ export function evaluateStrictMultiTimeframeStrategy(
         recent5mLows.find((s) => s < spotEntry - atr5mRaw * 0.6 && s >= spotEntry - atr5mRaw * 3.3) ??
         majorSupports.find((s) => s < spotEntry - atr5mRaw * 0.8 && s >= spotEntry - atr5mRaw * 3.4) ??
         null;
-      const rawStop =
+      const baseStop =
         structuralSupport != null
           ? Number(
               Math.min(
@@ -1816,6 +1858,10 @@ export function evaluateStrictMultiTimeframeStrategy(
               ).toFixed(2)
             )
           : Number((spotEntry - atr5mRaw * (mode === 'SURE' ? 2.0 : 1.6)).toFixed(2));
+      const rawStop =
+        mode === 'SURE' && recent10Floor5m != null && recent10Floor5m < spotEntry
+          ? Number(Math.min(baseStop, recent10Floor5m - atr5mRaw * 0.2).toFixed(2))
+          : baseStop;
       const stopDistance = Number((spotEntry - rawStop).toFixed(2));
       const validStop = stopDistance >= minStopDist && stopDistance <= maxStopDist;
 
@@ -1884,7 +1930,7 @@ export function evaluateStrictMultiTimeframeStrategy(
         recent5mHighs.find((r) => r > spotEntry + atr5mRaw * 0.6 && r <= spotEntry + atr5mRaw * 3.3) ??
         majorResistances.find((r) => r > spotEntry + atr5mRaw * 0.8 && r <= spotEntry + atr5mRaw * 3.4) ??
         null;
-      const rawStop =
+      const baseStop =
         structuralResistance != null
           ? Number(
               Math.max(
@@ -1893,6 +1939,10 @@ export function evaluateStrictMultiTimeframeStrategy(
               ).toFixed(2)
             )
           : Number((spotEntry + atr5mRaw * (mode === 'SURE' ? 2.0 : 1.6)).toFixed(2));
+      const rawStop =
+        mode === 'SURE' && recent10Ceiling5m != null && recent10Ceiling5m > spotEntry
+          ? Number(Math.max(baseStop, recent10Ceiling5m + atr5mRaw * 0.2).toFixed(2))
+          : baseStop;
       const stopDistance = Number((rawStop - spotEntry).toFixed(2));
       const validStop = stopDistance >= minStopDist && stopDistance <= maxStopDist;
 
@@ -2148,7 +2198,16 @@ export function evaluateTickOutcome(
   takeProfit: number,
   tickPrice: number
 ): { status: SureSignalStatus; closePrice: number; pnlPoints: number } | null {
-  if (!Number.isFinite(tickPrice) || tickPrice <= 0) return null;
+  if (
+    !Number.isFinite(tickPrice) ||
+    !Number.isFinite(entryPrice) ||
+    !Number.isFinite(stopLoss) ||
+    !Number.isFinite(takeProfit) ||
+    tickPrice <= 0 ||
+    entryPrice <= 0
+  ) {
+    return null;
+  }
   const rounded = Number(tickPrice.toFixed(2));
 
   if (direction === 'BUY') {
@@ -2196,6 +2255,15 @@ export function evaluateCandleOutcome(
   takeProfit: number,
   candles: Candle[]
 ): { status: SureSignalStatus; closePrice: number; pnlPoints: number; candleTime: number } | null {
+  if (
+    !Number.isFinite(entryPrice) ||
+    !Number.isFinite(stopLoss) ||
+    !Number.isFinite(takeProfit) ||
+    entryPrice <= 0 ||
+    !Array.isArray(candles)
+  ) {
+    return null;
+  }
   for (const c of candles) {
     if (direction === 'BUY') {
       const hitSL = c.low <= stopLoss;

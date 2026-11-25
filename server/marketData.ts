@@ -69,12 +69,20 @@ async function ensureSpotStoreLoaded(): Promise<void> {
         if (
           item &&
           typeof item.time === 'number' &&
+          Number.isFinite(item.time) &&
           item.time >= cutoff &&
           typeof item.open === 'number' &&
           typeof item.high === 'number' &&
           typeof item.low === 'number' &&
           typeof item.close === 'number' &&
+          Number.isFinite(item.open) &&
+          Number.isFinite(item.high) &&
+          Number.isFinite(item.low) &&
+          Number.isFinite(item.close) &&
           item.open > 0 &&
+          item.low > 0 &&
+          item.high >= Math.max(item.open, item.close) &&
+          item.low <= Math.min(item.open, item.close) &&
           !liveSpot1mCandles.has(item.time)
         ) {
           liveSpot1mCandles.set(item.time, {
@@ -889,8 +897,11 @@ export function validateCandleSeriesIntegrity(
   let largeGapCount = 0;
   for (let i = 1; i < tail.length; i++) {
     const dt = tail[i].time - tail[i - 1].time;
-    // Flag intra-session gaps larger than 4 intervals (but < 4 hours which may be weekend/maintenance)
-    if (dt > tfSec * 4 && dt < 4 * 3_600) {
+    const prevUtcHour = new Date(tail[i - 1].time * 1000).getUTCHours();
+    const isWeekendBreak = dt >= 30 * 3_600;
+    const isDailyComexMaintenance = dt <= 5_400 && (prevUtcHour === 21 || prevUtcHour === 22);
+    // Flag intra-session gaps larger than 4 intervals (including multi-hour Spot gaps while excluding maintenance/weekend)
+    if (dt > tfSec * 4 && !isWeekendBreak && !isDailyComexMaintenance) {
       largeGapCount++;
     }
   }
@@ -994,7 +1005,7 @@ export async function fetchCandles(timeframe: Timeframe): Promise<CandleDataset>
   const candles = Array.from(mergedByTime.values()).sort((a, b) => a.time - b.time);
 
   // Reflect latest live Swissquote tick on the active forming bar on the chart
-  if (liveQuote.freshness === 'LIVE' && liveQuote.mid > 0) {
+  if (liveQuote.freshness === 'LIVE' && liveQuote.mid > 0 && candles.length > 0) {
     const quoteSec = Math.floor(liveQuote.timestamp / 1000);
     const liveMid = Number(liveQuote.mid.toFixed(2));
     const currentLast = candles[candles.length - 1];
@@ -1019,7 +1030,7 @@ export async function fetchCandles(timeframe: Timeframe): Promise<CandleDataset>
     }
   }
 
-  const latestCandleMs = candles[candles.length - 1].time * 1000;
+  const latestCandleMs = candles.length > 0 ? candles[candles.length - 1].time * 1000 : Date.now();
   const latestTimestamp = Math.max(
     baseDataset.latestTimestamp,
     latestCandleMs,

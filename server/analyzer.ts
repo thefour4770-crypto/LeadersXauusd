@@ -67,7 +67,7 @@ export class NewsBlockedError extends Error {
   }
 }
 
-function isFreshSpotDataset(
+export function isFreshSpotDataset(
   ds: CandleDataset | null,
   timeframe: '1m' | '5m' | '15m',
   maxClosedAgeSec: number,
@@ -78,7 +78,23 @@ function isFreshSpotDataset(
   const { closed } = sliceClosedCandles(ds.candles, timeframe, nowSec);
   if (closed.length < minClosedBars) return false;
   const lastClosed = closed[closed.length - 1];
-  return Boolean(lastClosed) && nowSec - lastClosed.time <= maxClosedAgeSec;
+  if (!lastClosed || nowSec - lastClosed.time > maxClosedAgeSec) return false;
+
+  // Ensure the most recent window is actually contiguous (no server-sleep or multi-hour gaps
+  // corrupting EMA/RSI/ATR/OBV calculations inside a fragmented live-spot-1m.json store).
+  const tfSec = TIMEFRAME_SECONDS[timeframe];
+  const tailCount = Math.min(closed.length, Math.max(30, Math.floor(minClosedBars * 0.6)));
+  const tail = closed.slice(-tailCount);
+  if (tail.length >= 2) {
+    const expectedSpan = (tail.length - 1) * tfSec;
+    const actualSpan = tail[tail.length - 1].time - tail[0].time;
+    if (actualSpan > expectedSpan * 1.4) return false;
+    for (let i = 1; i < tail.length; i++) {
+      const dt = tail[i].time - tail[i - 1].time;
+      if (dt > tfSec * 4) return false;
+    }
+  }
+  return true;
 }
 
 export async function fetchStrategyDatasets(): Promise<StrategyDatasetsInput> {

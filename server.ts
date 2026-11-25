@@ -62,12 +62,19 @@ async function startServer() {
   });
 
   app.get('/api/market/quote', async (_req, res) => {
-    const quote = await fetchLiveXauUsdQuote();
-    if (quote.freshness === 'UNAVAILABLE') {
-      res.status(503).json({ status: 'DATA UNAVAILABLE', quote });
-      return;
+    try {
+      const quote = await fetchLiveXauUsdQuote();
+      if (quote.freshness === 'UNAVAILABLE') {
+        res.status(503).json({ status: 'DATA UNAVAILABLE', quote });
+        return;
+      }
+      res.json({ status: quote.freshness, quote });
+    } catch (err) {
+      res.status(503).json({
+        status: 'DATA UNAVAILABLE',
+        error: err instanceof Error ? err.message : 'Unable to fetch quote',
+      });
     }
-    res.json({ status: quote.freshness, quote });
   });
 
   app.get('/api/market/stream', (req, res) => {
@@ -264,21 +271,29 @@ async function startServer() {
   });
 
   app.get('/api/reports/:id', async (req, res) => {
-    const report = await getReportById(req.params.id);
-    if (!report) {
-      res.status(404).json({ error: 'Report not found' });
-      return;
+    try {
+      const report = await getReportById(req.params.id);
+      if (!report) {
+        res.status(404).json({ error: 'Report not found' });
+        return;
+      }
+      res.json({ report });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to load report' });
     }
-    res.json({ report });
   });
 
   app.delete('/api/reports/:id', async (req, res) => {
-    const deleted = await deleteReportById(req.params.id);
-    if (!deleted) {
-      res.status(404).json({ error: 'Report not found' });
-      return;
+    try {
+      const deleted = await deleteReportById(req.params.id);
+      if (!deleted) {
+        res.status(404).json({ error: 'Report not found' });
+        return;
+      }
+      res.json({ deleted: true, id: req.params.id });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to delete report' });
     }
-    res.json({ deleted: true, id: req.params.id });
   });
 
   app.get('/api/sure-signals', async (_req, res) => {
@@ -308,23 +323,27 @@ async function startServer() {
   });
 
   app.delete('/api/sure-signals/:id', async (req, res) => {
-    const existing = await getSureSignalStatus();
-    const target = existing.history.find((item) => item.id === req.params.id);
-    if (!target) {
-      res.status(404).json({ error: 'Sure signal not found' });
-      return;
+    try {
+      const existing = await getSureSignalStatus();
+      const target = existing.history.find((item) => item.id === req.params.id);
+      if (!target) {
+        res.status(404).json({ error: 'Sure signal not found' });
+        return;
+      }
+      if (target.status !== 'ACTIVE') {
+        res.status(400).json({ error: 'Completed SURE signal history records are immutable and cannot be deleted.' });
+        return;
+      }
+      const deleted = await deleteSureSignalById(req.params.id);
+      if (!deleted) {
+        res.status(404).json({ error: 'Sure signal not found' });
+        return;
+      }
+      const status = await handleSureSignalDeleted(req.params.id);
+      res.json({ deleted: true, id: req.params.id, sureStatus: status });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to delete sure signal' });
     }
-    if (target.status !== 'ACTIVE') {
-      res.status(400).json({ error: 'Completed SURE signal history records are immutable and cannot be deleted.' });
-      return;
-    }
-    const deleted = await deleteSureSignalById(req.params.id);
-    if (!deleted) {
-      res.status(404).json({ error: 'Sure signal not found' });
-      return;
-    }
-    const status = await handleSureSignalDeleted(req.params.id);
-    res.json({ deleted: true, id: req.params.id, sureStatus: status });
   });
 
   app.get('/api/push/vapid-public-key', async (_req, res) => {
@@ -355,13 +374,17 @@ async function startServer() {
   });
 
   app.post('/api/push/unsubscribe', async (req, res) => {
-    const endpoint = typeof req.body?.endpoint === 'string' ? req.body.endpoint : '';
-    if (!endpoint) {
-      res.status(400).json({ error: 'Missing endpoint' });
-      return;
+    try {
+      const endpoint = typeof req.body?.endpoint === 'string' ? req.body.endpoint : '';
+      if (!endpoint) {
+        res.status(400).json({ error: 'Missing endpoint' });
+        return;
+      }
+      const removed = await removePushSubscription(endpoint);
+      res.json({ unsubscribed: true, removed });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unable to unsubscribe push endpoint' });
     }
-    const removed = await removePushSubscription(endpoint);
-    res.json({ unsubscribed: true, removed });
   });
 
   app.post('/api/push/test', async (req, res) => {
@@ -473,15 +496,39 @@ async function startServer() {
     });
   }
 
+  app.use(
+    (
+      err: unknown,
+      _req: express.Request,
+      res: express.Response,
+      _next: express.NextFunction
+    ) => {
+      console.error('Unhandled Express error:', err);
+      if (res.headersSent) return;
+      res.status(500).json({
+        status: 'SERVER ERROR',
+        error: err instanceof Error ? err.message : 'Unexpected server error',
+      });
+    }
+  );
+
   const PORT = Number(process.env.PORT) || 3000;
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`LEADERS XAUUSD server listening on http://0.0.0.0:${PORT}`);
     startNewsBackgroundMonitor(() => {
-      void runSureSignalScan();
+      void runSureSignalScan().catch(() => {});
     });
     startSureSignalBackgroundScanner();
   });
 }
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled Promise Rejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+});
 
 startServer().catch((err) => {
   console.error('Failed to start LEADERS XAUUSD server:', err);
