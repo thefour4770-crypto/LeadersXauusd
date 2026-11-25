@@ -1,6 +1,7 @@
 import { memo, useMemo } from 'react';
 import { AlertTriangle, Calendar, Clock, RefreshCw, ShieldAlert } from 'lucide-react';
 import type { EconomicCalendarPayload, EconomicNewsEvent } from '../types/market.ts';
+import { safeLocaleTime } from '../utils/format.ts';
 
 interface NewsCalendarViewProps {
   calendar: EconomicCalendarPayload | null;
@@ -136,13 +137,18 @@ export const NewsCalendarView = memo(function NewsCalendarView({
 
   const formattedUpdated = useMemo(() => {
     if (!calendar?.lastUpdatedAt) return null;
-    return new Date(calendar.lastUpdatedAt).toLocaleTimeString('en-US', {
-      timeZone: 'Asia/Kolkata',
-      hour: 'numeric',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: true,
-    });
+    const formatted = safeLocaleTime(
+      calendar.lastUpdatedAt,
+      {
+        timeZone: 'Asia/Kolkata',
+        hour: 'numeric',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true,
+      },
+      ''
+    );
+    return formatted || null;
   }, [calendar?.lastUpdatedAt]);
 
   return (

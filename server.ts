@@ -510,6 +510,10 @@ async function startServer() {
     res.send(entry.buffer);
   });
 
+  app.all('/api/*', (_req, res) => {
+    res.status(404).json({ status: 'NOT FOUND', error: 'API endpoint not found.' });
+  });
+
   const isProd = process.env.NODE_ENV === 'production';
   if (!isProd) {
     // Prevent Vite SPA index.html fallback when browsers check /sw.js in dev mode

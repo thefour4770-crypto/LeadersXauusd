@@ -2112,6 +2112,186 @@ test('37. sureSignalsStore filters corrupt disk entries and ignores invalid reco
   }
 });
 
+test('38. SURE blocks false SELL after 15m higher-low V-reversal, delayed GC=F upward Spot bounce, live Spot 1m bullish candle, and bloated ATR chop SL', () => {
+  const indicators = createAutoPerfectIndicators();
+
+  // Case A: Bearish 1H/15m history ends with 4 consecutive 15m higher lows + strong rebound off bottom
+  const bear = buildBearishDatasets(3500);
+  const c15m = bear.datasets.tf15m.candles.map((c) => ({ ...c }));
+  const n15 = c15m.length;
+  // Flush trough at n15 - 6, then 5 higher-low green candles surging upward
+  const troughBase = Number((c15m[n15 - 7].close - 18).toFixed(2));
+  c15m[n15 - 6] = {
+    ...c15m[n15 - 6],
+    open: Number((troughBase + 12).toFixed(2)),
+    high: Number((troughBase + 13).toFixed(2)),
+    low: troughBase,
+    close: Number((troughBase + 4).toFixed(2)),
+  };
+  for (let k = 5; k >= 1; k--) {
+    const step = 6 - k;
+    const prevC = c15m[n15 - k - 1].close;
+    const low = Number((troughBase + step * 3.0).toFixed(2));
+    const close = Number((prevC + 4.8).toFixed(2));
+    c15m[n15 - k] = {
+      ...c15m[n15 - k],
+      open: prevC,
+      high: Number((close + 2.2).toFixed(2)),
+      low,
+      close,
+    };
+  }
+
+  const resReversal = evaluateStrictMultiTimeframeStrategy({
+    datasets: { ...bear.datasets, tf15m: makeDataset('15m', c15m) },
+    quote: bear.quote,
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+  assert.notEqual(resReversal.evaluation.structure15M.bosDetected, 'BEARISH', '15m higher-low reversal must never emit BOS:BEARISH');
+  assert.notEqual(resReversal.evaluation.action, 'SELL', 'SURE must block SELL during 15m higher-low rebound');
+
+  // Case B: Delayed GC=F 1m shows bearish close 8m ago, while live Spot already bounced +$6.50 against SELL
+  const bearDelayed = buildBearishDatasets(3500);
+  const BASIS = 26.5;
+  const shiftSet = (bars: Candle[]) =>
+    bars.map((c) => ({
+      ...c,
+      open: Number((c.open + BASIS).toFixed(2)),
+      high: Number((c.high + BASIS).toFixed(2)),
+      low: Number((c.low + BASIS).toFixed(2)),
+      close: Number((c.close + BASIS).toFixed(2)),
+    }));
+  const spot1mTail = bearDelayed.datasets.tf1m.candles.map((c) => ({ ...c }));
+  // Last 2 real-time Spot 1m closed bars turned bullish (+$5 bounce above delayed GC=F 1m close)
+  const f1mDelayed = shiftSet(spot1mTail.slice(0, -8));
+  const lastIdx = spot1mTail.length - 1;
+  spot1mTail[lastIdx] = {
+    ...spot1mTail[lastIdx],
+    open: Number((spot1mTail[lastIdx - 8].close + 1.5).toFixed(2)),
+    high: Number((spot1mTail[lastIdx - 8].close + 6.5).toFixed(2)),
+    low: Number((spot1mTail[lastIdx - 8].close + 1.0).toFixed(2)),
+    close: Number((spot1mTail[lastIdx - 8].close + 6.0).toFixed(2)),
+  };
+  const bouncedQuote = makeQuote(spot1mTail[lastIdx].close + 0.5);
+
+  const resDelayedBounce = evaluateStrictMultiTimeframeStrategy({
+    datasets: {
+      tf1H: makeDataset('1H', shiftSet(bearDelayed.datasets.tf1H.candles), 'Yahoo Finance COMEX Gold (GC=F)'),
+      tf15m: makeDataset('15m', shiftSet(bearDelayed.datasets.tf15m.candles), 'Yahoo Finance COMEX Gold (GC=F)'),
+      tf5m: makeDataset('5m', shiftSet(bearDelayed.datasets.tf5m.candles), 'Yahoo Finance COMEX Gold (GC=F)'),
+      tf1m: makeDataset('1m', f1mDelayed, 'Yahoo Finance COMEX Gold (GC=F)'),
+      spot1mHistory: spot1mTail,
+    },
+    quote: bouncedQuote,
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+  assert.equal(resDelayedBounce.evaluation.confirmation1M.confirmed, false, 'SURE 1M must reject delayed GC=F SELL after live Spot reversal');
+  assert.notEqual(resDelayedBounce.evaluation.action, 'SELL');
+
+  // Case C: Extreme 5M chop (ATR5m ~$10.2 producing >$16 SL) must be rejected by SURE volatility-capped stop ceiling ($14.80)
+  const bearChop = buildBearishDatasets(3500);
+  const c5mChop = bearChop.datasets.tf5m.candles.map((c, idx, arr) => {
+    if (idx < arr.length - 18) return c;
+    const mid = (c.high + c.low) / 2;
+    return {
+      ...c,
+      high: Number((mid + 5.8).toFixed(2)),
+      low: Number((mid - 5.8).toFixed(2)),
+    };
+  });
+  const resChop = evaluateStrictMultiTimeframeStrategy({
+    datasets: { ...bearChop.datasets, tf5m: makeDataset('5m', c5mChop) },
+    quote: bearChop.quote,
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+  assert.notEqual(resChop.evaluation.action, 'SELL', 'SURE must reject oversized SL > $14.80 in extreme ATR chop');
+});
+
+test('39. Symmetric BUY protection: blocks 15m lower-high selloff BOS:BULLISH and delayed GC=F BUY when live Spot dumps', () => {
+  const indicators = createAutoPerfectIndicators();
+
+  // Case A: Bullish history ends with 4 consecutive lower highs + falling closes
+  const bull = buildBullishDatasets(3780);
+  const c15m = bull.datasets.tf15m.candles.map((c) => ({ ...c }));
+  const n15 = c15m.length;
+  const peakBase = Number((c15m[n15 - 7].close + 18).toFixed(2));
+  c15m[n15 - 6] = {
+    ...c15m[n15 - 6],
+    open: Number((peakBase - 12).toFixed(2)),
+    high: peakBase,
+    low: Number((peakBase - 13).toFixed(2)),
+    close: Number((peakBase - 4).toFixed(2)),
+  };
+  for (let k = 5; k >= 1; k--) {
+    const step = 6 - k;
+    const prevC = c15m[n15 - k - 1].close;
+    const high = Number((peakBase - step * 3.0).toFixed(2));
+    const close = Number((prevC - 4.8).toFixed(2));
+    c15m[n15 - k] = {
+      ...c15m[n15 - k],
+      open: prevC,
+      high,
+      low: Number((close - 2.2).toFixed(2)),
+      close,
+    };
+  }
+
+  const resDump = evaluateStrictMultiTimeframeStrategy({
+    datasets: { ...bull.datasets, tf15m: makeDataset('15m', c15m) },
+    quote: bull.quote,
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+  assert.notEqual(resDump.evaluation.structure15M.bosDetected, 'BULLISH');
+  assert.notEqual(resDump.evaluation.action, 'BUY');
+
+  // Case B: Delayed GC=F 1m BUY invalidated when live Spot dumps -$5.50 below delayed 1m close
+  const bullDelayed = buildBullishDatasets(3780);
+  const BASIS = 26.5;
+  const shiftSet = (bars: Candle[]) =>
+    bars.map((c) => ({
+      ...c,
+      open: Number((c.open + BASIS).toFixed(2)),
+      high: Number((c.high + BASIS).toFixed(2)),
+      low: Number((c.low + BASIS).toFixed(2)),
+      close: Number((c.close + BASIS).toFixed(2)),
+    }));
+  const spot1mTail = bullDelayed.datasets.tf1m.candles.map((c) => ({ ...c }));
+  const f1mDelayed = shiftSet(spot1mTail.slice(0, -8));
+  const lastIdx = spot1mTail.length - 1;
+  spot1mTail[lastIdx] = {
+    ...spot1mTail[lastIdx],
+    open: Number((spot1mTail[lastIdx - 8].close - 1.0).toFixed(2)),
+    high: Number((spot1mTail[lastIdx - 8].close - 0.5).toFixed(2)),
+    low: Number((spot1mTail[lastIdx - 8].close - 5.8).toFixed(2)),
+    close: Number((spot1mTail[lastIdx - 8].close - 5.2).toFixed(2)),
+  };
+
+  const resDelayedDump = evaluateStrictMultiTimeframeStrategy({
+    datasets: {
+      tf1H: makeDataset('1H', shiftSet(bullDelayed.datasets.tf1H.candles), 'Yahoo Finance COMEX Gold (GC=F)'),
+      tf15m: makeDataset('15m', shiftSet(bullDelayed.datasets.tf15m.candles), 'Yahoo Finance COMEX Gold (GC=F)'),
+      tf5m: makeDataset('5m', shiftSet(bullDelayed.datasets.tf5m.candles), 'Yahoo Finance COMEX Gold (GC=F)'),
+      tf1m: makeDataset('1m', f1mDelayed, 'Yahoo Finance COMEX Gold (GC=F)'),
+      spot1mHistory: spot1mTail,
+    },
+    quote: makeQuote(spot1mTail[lastIdx].close - 0.4),
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+  assert.equal(resDelayedDump.evaluation.confirmation1M.confirmed, false);
+  assert.notEqual(resDelayedDump.evaluation.action, 'BUY');
+});
+
+
 
 
 

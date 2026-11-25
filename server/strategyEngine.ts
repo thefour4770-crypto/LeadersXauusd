@@ -306,9 +306,11 @@ function detectMarketStructure15m(candles: Candle[]): {
   }
 
   const latestClose = win[win.length - 1].close;
-  const recentCloses = win.slice(-10).map((c) => c.close);
+  const recentCloses = win.slice(-4).map((c) => c.close);
+  const ema9Arr = emaArray(win.map((c) => c.close), 9);
   const ema20Arr = emaArray(win.map((c) => c.close), 20);
   const ema50Arr = emaArray(win.map((c) => c.close), 50);
+  const ema9Last = lastNonNull(ema9Arr).value;
   const ema20Last = lastNonNull(ema20Arr).value;
   const ema50Last = lastNonNull(ema50Arr).value;
 
@@ -321,22 +323,62 @@ function detectMarketStructure15m(candles: Candle[]): {
   const priorBearish = lowerHighs || (prevSwingLow != null && lastSwingLow < prevSwingLow);
   const priorBullish = higherLows || (prevSwingHigh != null && lastSwingHigh > prevSwingHigh);
 
+  const last3 = win.slice(-3);
+  const last4 = win.slice(-4);
+  const higherLowSequence15m =
+    last4.length === 4 &&
+    last4[1].low > last4[0].low &&
+    last4[2].low > last4[1].low &&
+    last4[3].low > last4[2].low &&
+    latestClose > last4[0].low;
+  const lowerHighSequence15m =
+    last4.length === 4 &&
+    last4[1].high < last4[0].high &&
+    last4[2].high < last4[1].high &&
+    last4[3].high < last4[2].high &&
+    latestClose < last4[0].high;
+
+  const activeRebound =
+    win.length >= 4 &&
+    last3[2].close > last3[1].close &&
+    last3[1].close > last3[0].close &&
+    last3[2].low > last3[1].low &&
+    (ema9Last == null || latestClose > ema9Last);
+  const activeSelloff =
+    win.length >= 4 &&
+    last3[2].close < last3[1].close &&
+    last3[1].close < last3[0].close &&
+    last3[2].high < last3[1].high &&
+    (ema9Last == null || latestClose < ema9Last);
+
   // Continuation structure trend on 15m
-  const emaBearTrend = ema20Last != null && ema50Last != null && ema20Last < ema50Last && latestClose < lastSwingHigh;
-  const emaBullTrend = ema20Last != null && ema50Last != null && ema20Last > ema50Last && latestClose > lastSwingLow;
+  const emaBearTrend =
+    ema20Last != null &&
+    ema50Last != null &&
+    ema20Last < ema50Last &&
+    latestClose < lastSwingHigh &&
+    !activeRebound &&
+    !higherLowSequence15m;
+  const emaBullTrend =
+    ema20Last != null &&
+    ema50Last != null &&
+    ema20Last > ema50Last &&
+    latestClose > lastSwingLow &&
+    !activeSelloff &&
+    !lowerHighSequence15m;
 
   const swingSpan = Math.max(0.01, lastSwingHigh - lastSwingLow);
   const posInSwingRange = (latestClose - lastSwingLow) / swingSpan;
 
-  // Recent structural break check across last 10 closed 15m candles (without false-triggering far away from broken swing)
+  // Recent structural break check across last 4 closed 15m candles (ignoring reclaimed traps & active HL/LH sequences)
   const brokeAboveSwingHigh =
-    recentCloses.some((c) => c > lastSwingHigh) ||
+    (recentCloses.some((c) => c > lastSwingHigh) && latestClose >= lastSwingHigh * 0.999) ||
     latestClose > lastSwingHigh ||
-    (higherHighs && latestClose > lastSwingLow && posInSwingRange >= 0.55);
+    (higherHighs && latestClose > lastSwingLow && posInSwingRange >= 0.55 && !activeSelloff && !lowerHighSequence15m);
   const brokeBelowSwingLow =
-    recentCloses.some((c) => c < lastSwingLow) ||
+    (recentCloses.some((c) => c < lastSwingLow) && latestClose <= lastSwingLow * 1.001) ||
     latestClose < lastSwingLow ||
-    (lowerLows && latestClose < lastSwingHigh && posInSwingRange <= 0.45);
+    (lowerLows && latestClose < lastSwingHigh && posInSwingRange <= 0.45 && !activeRebound && !higherLowSequence15m);
 
   let bosDetected: 'BULLISH' | 'BEARISH' | 'NONE' = 'NONE';
   let chochDetected: 'BULLISH' | 'BEARISH' | 'NONE' = 'NONE';
@@ -373,14 +415,36 @@ function detectMarketStructure15m(candles: Candle[]): {
     if (chochDetected === 'BULLISH') chochDetected = 'NONE';
   }
 
+  // Immediate 4-bar higher-low/lower-high counter-trend CHoCH (catches V-reversals before leftRight=3 pivots lag 45m)
+  const recentBullReversal15m =
+    higherLowSequence15m &&
+    last4[3].close > last4[2].close &&
+    last4[2].close > last4[1].close &&
+    (ema9Last == null || latestClose > ema9Last) &&
+    latestClose > Math.max(last4[0].high, last4[1].high, last4[2].high);
+  const recentBearReversal15m =
+    lowerHighSequence15m &&
+    last4[3].close < last4[2].close &&
+    last4[2].close < last4[1].close &&
+    (ema9Last == null || latestClose < ema9Last) &&
+    latestClose < Math.min(last4[0].low, last4[1].low, last4[2].low);
+
+  if (recentBullReversal15m && bosDetected !== 'BULLISH') {
+    if (bosDetected === 'BEARISH') bosDetected = 'NONE';
+    chochDetected = 'BULLISH';
+  } else if (recentBearReversal15m && bosDetected !== 'BEARISH') {
+    if (bosDetected === 'BULLISH') bosDetected = 'NONE';
+    chochDetected = 'BEARISH';
+  }
+
   let direction: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
   if (bosDetected === 'BULLISH' || chochDetected === 'BULLISH') {
     direction = 'BULLISH';
   } else if (bosDetected === 'BEARISH' || chochDetected === 'BEARISH') {
     direction = 'BEARISH';
-  } else if (higherHighs && higherLows && latestClose > lastSwingLow) {
+  } else if (higherHighs && higherLows && latestClose > lastSwingLow && !lowerHighSequence15m) {
     direction = 'BULLISH';
-  } else if (lowerHighs && lowerLows && latestClose < lastSwingHigh) {
+  } else if (lowerHighs && lowerLows && latestClose < lastSwingHigh && !higherLowSequence15m) {
     direction = 'BEARISH';
   } else if (emaBullTrend && (higherHighs || higherLows)) {
     direction = 'BULLISH';
@@ -464,7 +528,7 @@ function detectSweepAndRetest5m(
     for (const supportRef of supportCandidates) {
       if (
         c.low < supportRef - atr * 0.02 &&
-        (c.close > supportRef || nextClose > supportRef) &&
+        (c.close > supportRef || (c.close >= supportRef - atr * 0.25 && nextClose > supportRef)) &&
         lowerWick >= atr * 0.12
       ) {
         bullishSweep = true;
@@ -488,7 +552,7 @@ function detectSweepAndRetest5m(
     for (const resRef of resistanceCandidates) {
       if (
         c.high > resRef + atr * 0.02 &&
-        (c.close < resRef || nextClose < resRef) &&
+        (c.close < resRef || (c.close <= resRef + atr * 0.25 && nextClose < resRef)) &&
         upperWick >= atr * 0.12
       ) {
         bearishSweep = true;
@@ -1331,6 +1395,30 @@ export function evaluateStrictMultiTimeframeStrategy(
   else if (bearCluster1H && dmiBear1H && adxOk1H) bias1H = 'BEARISH';
 
   const struct15m = detectMarketStructure15m(closed15m);
+  const lastClosed1HBar = closed1H[closed1H.length - 1];
+  const lastClosed15mBar = closed15m[closed15m.length - 1];
+  const atr15mFor1HGuard = getLatestAtrSafe(closed15m, 14) ?? (atr1H ? atr1H * 0.5 : 8);
+  let bias1HLiveReversed = false;
+  if (mode === 'SURE' && bias1H !== 'NEUTRAL' && lastClosed1HBar && lastClosed15mBar) {
+    if (
+      bias1H === 'BEARISH' &&
+      lastClosed15mBar.close > lastClosed1HBar.close + atr15mFor1HGuard * 0.45 &&
+      lastClosed15mBar.close > lastClosed15mBar.open &&
+      struct15m.direction !== 'BEARISH'
+    ) {
+      bias1H = 'NEUTRAL';
+      bias1HLiveReversed = true;
+    } else if (
+      bias1H === 'BULLISH' &&
+      lastClosed15mBar.close < lastClosed1HBar.close - atr15mFor1HGuard * 0.45 &&
+      lastClosed15mBar.close < lastClosed15mBar.open &&
+      struct15m.direction !== 'BULLISH'
+    ) {
+      bias1H = 'NEUTRAL';
+      bias1HLiveReversed = true;
+    }
+  }
+
   const telemetryDir: 'BULLISH' | 'BEARISH' | 'NEUTRAL' =
     bias1H !== 'NEUTRAL' ? bias1H : struct15m.direction;
 
@@ -1373,6 +1461,8 @@ export function evaluateStrictMultiTimeframeStrategy(
     summary:
       bias1H !== 'NEUTRAL'
         ? `1H major trend ${bias1H}: EMA/SMA/Supertrend cluster aligned, ADX ${adxVal1H?.toFixed(1)}, DMI (+${plusDI1H?.toFixed(1)}/-${minusDI1H?.toFixed(1)}).`
+        : bias1HLiveReversed
+        ? `1H trend paused (current 15M broke decisively across prior closed 1H close ${lastClosed1HBar?.close?.toFixed(2)} — active intraday reversal).`
         : `1H trend NEUTRAL (${stDir1H > 0 ? 'ST Bull' : 'ST Bear'}, ADX ${adxVal1H?.toFixed(1) ?? 'N/A'} — awaiting clear aligned trend).`,
   };
 
@@ -1550,7 +1640,9 @@ export function evaluateStrictMultiTimeframeStrategy(
     (price5m > ema21_5m ||
       ((sweepMatchesTelemetry || sweepRetest5m.retestConfirmed) &&
         price5m >= Math.min(ema9_5m, ema21_5m) - retestTouchTol)) &&
-    (stDir5m > 0 || ema9_5m >= ema21_5m * 0.9995 || (ema50_5m != null && ema21_5m > ema50_5m));
+    (mode === 'SURE'
+      ? stDir5m > 0 || ema9_5m >= ema21_5m
+      : stDir5m > 0 || ema9_5m >= ema21_5m * 0.9995 || (ema50_5m != null && ema21_5m > ema50_5m));
   const setup5mBear =
     telemetryDir === 'BEARISH' &&
     volatilityRegime5m === 'VALID' &&
@@ -1559,7 +1651,9 @@ export function evaluateStrictMultiTimeframeStrategy(
     (price5m < ema21_5m ||
       ((sweepMatchesTelemetry || sweepRetest5m.retestConfirmed) &&
         price5m <= Math.max(ema9_5m, ema21_5m) + retestTouchTol)) &&
-    (stDir5m < 0 || ema9_5m <= ema21_5m * 1.0005 || (ema50_5m != null && ema21_5m < ema50_5m));
+    (mode === 'SURE'
+      ? stDir5m < 0 || ema9_5m <= ema21_5m
+      : stDir5m < 0 || ema9_5m <= ema21_5m * 1.0005 || (ema50_5m != null && ema21_5m < ema50_5m));
 
   const direction5m: Setup5MSummary['direction'] = setup5mBull
     ? 'BULLISH'
@@ -1693,12 +1787,68 @@ export function evaluateStrictMultiTimeframeStrategy(
   const candleDirMatches =
     (telemetryDir === 'BULLISH' && closedBullCandle) || (telemetryDir === 'BEARISH' && closedBearCandle);
 
-  // If 1m candles come from delayed futures (GC=F), verify live Spot hasn't already bolted far ahead
+  // If 1m candles come from delayed futures (GC=F), enforce strict directional Spot drift & verify fresh Spot 1m closed bars
   const spot1mClose = translateToSpot(datasets.tf1m, lastClosed1m.close);
-  const futuresSpotDriftOk =
-    mode === 'ANALYSIS' ||
-    !datasets.tf1m.candleSource.includes('GC=F') ||
-    Math.abs(spotEntryProbe - spot1mClose) <= atr5mRaw * 2.0;
+  const isDelayedFutures1m = datasets.tf1m.candleSource.includes('GC=F');
+  const gcf1mLagSec = Math.max(0, nowSec - lastClosed1m.time);
+  const closedSpotHistory = datasets.spot1mHistory
+    ? sliceClosedCandles(datasets.spot1mHistory, '1m', nowSec).closed
+    : [];
+  const lastSpotClosed1m =
+    closedSpotHistory.length > 0 ? closedSpotHistory[closedSpotHistory.length - 1] : null;
+  const hasFreshSpotClosedTail =
+    lastSpotClosed1m != null && nowSec - lastSpotClosed1m.time <= 240;
+
+  let futuresSpotDriftOk = true;
+  let liveSpot1mConflictReason = '';
+  if (mode === 'SURE' && isDelayedFutures1m) {
+    const adverseDrift =
+      telemetryDir === 'BEARISH'
+        ? spotEntryProbe - spot1mClose
+        : telemetryDir === 'BULLISH'
+        ? spot1mClose - spotEntryProbe
+        : 0;
+    const favorableDrift =
+      telemetryDir === 'BEARISH'
+        ? spot1mClose - spotEntryProbe
+        : telemetryDir === 'BULLISH'
+        ? spotEntryProbe - spot1mClose
+        : 0;
+    const maxAdverseDrift = Math.min(2.75, atr5mRaw * 0.35);
+    const maxFavorableChase = Math.min(6.0, atr5mRaw * 0.85);
+    if (adverseDrift > maxAdverseDrift || favorableDrift > maxFavorableChase) {
+      futuresSpotDriftOk = false;
+      liveSpot1mConflictReason =
+        adverseDrift > maxAdverseDrift
+          ? `Spot reversed ${adverseDrift.toFixed(2)} vs 1M`
+          : `Spot extended ${favorableDrift.toFixed(2)}`;
+    } else if (gcf1mLagSec > 360 && !hasFreshSpotClosedTail) {
+      futuresSpotDriftOk = false;
+      liveSpot1mConflictReason = 'awaiting live Spot 1M tail';
+    } else if (
+      hasFreshSpotClosedTail &&
+      lastSpotClosed1m != null &&
+      lastSpotClosed1m.time > lastClosed1m.time
+    ) {
+      const spotRange = Math.max(0.01, lastSpotClosed1m.high - lastSpotClosed1m.low);
+      const spotBody = lastSpotClosed1m.close - lastSpotClosed1m.open;
+      if (
+        telemetryDir === 'BEARISH' &&
+        ((spotBody > 0 && spotBody >= Math.max(0.35, spotRange * 0.22)) ||
+          spotEntryProbe > lastSpotClosed1m.high + 0.5)
+      ) {
+        futuresSpotDriftOk = false;
+        liveSpot1mConflictReason = 'live Spot 1M bullish reversal';
+      } else if (
+        telemetryDir === 'BULLISH' &&
+        ((spotBody < 0 && Math.abs(spotBody) >= Math.max(0.35, spotRange * 0.22)) ||
+          spotEntryProbe < lastSpotClosed1m.low - 0.5)
+      ) {
+        futuresSpotDriftOk = false;
+        liveSpot1mConflictReason = 'live Spot 1M bearish reversal';
+      }
+    }
+  }
 
   const confirmed1m =
     telemetryDir !== 'NEUTRAL' &&
@@ -1736,7 +1886,7 @@ export function evaluateStrictMultiTimeframeStrategy(
     confirmed: confirmed1m,
     summary: confirmed1m
       ? `1M closed bar (${new Date(lastClosed1m.time * 1000).toISOString()}) confirmed ${confirmedSideLabel} with EMA/Supertrend, DMI, RSI/MACD & Volume.`
-      : `1M closed bar waiting (${candleDirMatches ? 'candle OK' : 'closed candle direction unconfirmed'}, EMA:${emaAligned1m ? 'OK' : 'NO'}, ST:${supertrendAligned1m ? 'OK' : 'NO'}, DMI:${dmiAligned1m ? 'OK' : 'NO'}, Mom:${rsiMomentumOk1m && macdMomentumOk1m ? 'OK' : 'NO'}, Vol:${volumeOk1m ? 'OK' : 'NO'}, Drift:${futuresSpotDriftOk ? 'OK' : 'NO'}).`,
+      : `1M closed bar waiting (${candleDirMatches ? 'candle OK' : 'closed candle direction unconfirmed'}, EMA:${emaAligned1m ? 'OK' : 'NO'}, ST:${supertrendAligned1m ? 'OK' : 'NO'}, DMI:${dmiAligned1m ? 'OK' : 'NO'}, Mom:${rsiMomentumOk1m && macdMomentumOk1m ? 'OK' : 'NO'}, Vol:${volumeOk1m ? 'OK' : 'NO'}, Drift:${futuresSpotDriftOk ? 'OK' : liveSpot1mConflictReason || 'NO'}).`,
   };
 
   // =========================================================================
@@ -1782,12 +1932,10 @@ export function evaluateStrictMultiTimeframeStrategy(
 
   if (candidateDirection !== 'NONE') {
     const minStopDist = Math.max(0.8, Number((atr5mRaw * (mode === 'SURE' ? 1.45 : 0.85)).toFixed(2)));
-    const maxStopDist = Math.max(
-      minStopDist + 1,
+    const maxStopDist =
       mode === 'SURE'
-        ? Math.max(12.5, Number((atr5mRaw * 2.6).toFixed(2)))
-        : Number((atr5mRaw * 3.9).toFixed(2))
-    );
+        ? Math.min(14.8, Math.max(12.5, Number((atr5mRaw * 2.6).toFixed(2))))
+        : Math.max(minStopDist + 1, Number((atr5mRaw * 3.9).toFixed(2)));
     const sr15m = computeSupportResistance(closed15m);
     const sr1H = computeSupportResistance(closed1H);
     const liveProbe1HScale =
