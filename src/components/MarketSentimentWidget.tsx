@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { Activity, AlertCircle, Minus, TrendingDown, TrendingUp } from 'lucide-react';
 import type { MarketSentiment24h } from '../types/market.ts';
+import { safeFixed, safeNumber } from '../utils/format.ts';
 import { isMarketClosedStatus } from '../utils/marketHours.ts';
 
 interface MarketSentimentWidgetProps {
@@ -50,9 +51,9 @@ export const MarketSentimentWidget = memo(function MarketSentimentWidget({
   const DirIcon = isBull ? TrendingUp : isBear ? TrendingDown : Minus;
 
   const dominantPct =
-    sentiment.bullishSharePct >= sentiment.bearishSharePct
-      ? `${sentiment.bullishSharePct}% Bullish`
-      : `${sentiment.bearishSharePct}% Bearish`;
+    safeNumber(sentiment.bullishSharePct) >= safeNumber(sentiment.bearishSharePct)
+      ? `${safeNumber(sentiment.bullishSharePct)}% Bullish`
+      : `${safeNumber(sentiment.bearishSharePct)}% Bearish`;
 
   const marketClosed = isMarketClosedStatus(sentiment.freshness, sentiment.latestTimestamp);
 
@@ -78,8 +79,8 @@ export const MarketSentimentWidget = memo(function MarketSentimentWidget({
         <div className={`inline-flex items-center gap-1.5 text-sm font-mono font-bold tabular-nums ${accentColor}`}>
           <DirIcon className="w-4 h-4" />
           <span>
-            {sentiment.directionalTrendPct >= 0 ? '+' : ''}
-            {sentiment.directionalTrendPct.toFixed(1)}%
+            {safeNumber(sentiment.directionalTrendPct) >= 0 ? '+' : ''}
+            {safeFixed(sentiment.directionalTrendPct, 1, '0.0')}%
           </span>
           <span className="text-xs font-medium text-zinc-400">({dominantPct})</span>
         </div>
@@ -89,20 +90,20 @@ export const MarketSentimentWidget = memo(function MarketSentimentWidget({
       <div className="space-y-1.5">
         <div className="flex items-center justify-between text-[11px] font-mono tabular-nums">
           <span className="text-emerald-400 font-semibold">
-            Bullish Pressure {sentiment.bullishSharePct}%
+            Bullish Pressure {safeNumber(sentiment.bullishSharePct)}%
           </span>
           <span className="text-red-400 font-semibold">
-            Bearish Pressure {sentiment.bearishSharePct}%
+            Bearish Pressure {safeNumber(sentiment.bearishSharePct)}%
           </span>
         </div>
         <div className="h-2.5 w-full rounded-full overflow-hidden flex bg-[#09090B] border border-[#D4AF37]/25">
           <div
             className="h-full bg-emerald-500/75 transition-all duration-300"
-            style={{ width: `${sentiment.bullishSharePct}%` }}
+            style={{ width: `${Math.max(0, Math.min(100, safeNumber(sentiment.bullishSharePct)))}%` }}
           />
           <div
             className="h-full bg-red-500/75 transition-all duration-300"
-            style={{ width: `${sentiment.bearishSharePct}%` }}
+            style={{ width: `${Math.max(0, Math.min(100, safeNumber(sentiment.bearishSharePct)))}%` }}
           />
         </div>
       </div>
@@ -113,18 +114,18 @@ export const MarketSentimentWidget = memo(function MarketSentimentWidget({
           <div className="text-[10px] text-zinc-500">24H Net Move</div>
           <div
             className={`font-semibold ${
-              sentiment.priceChange24hPct >= 0 ? 'text-emerald-400' : 'text-red-400'
+              safeNumber(sentiment.priceChange24hPct) >= 0 ? 'text-emerald-400' : 'text-red-400'
             }`}
           >
-            {sentiment.priceChange24hPct >= 0 ? '+' : ''}
-            {sentiment.priceChange24hPct.toFixed(2)}%
+            {safeNumber(sentiment.priceChange24hPct) >= 0 ? '+' : ''}
+            {safeFixed(sentiment.priceChange24hPct, 2, '0.00')}%
           </div>
         </div>
 
         <div className="rounded-xl bg-[#0D0E12] border border-[#D4AF37]/22 px-2.5 py-2">
           <div className="text-[10px] text-zinc-500">1H ATR / Avg</div>
           <div className="text-zinc-200 font-semibold">
-            ${sentiment.latestHourlyAtrUsd.toFixed(2)}{' '}
+            ${safeFixed(sentiment.latestHourlyAtrUsd)}{' '}
             <span className="text-[10px] text-zinc-400">({sentiment.volatilityRegime})</span>
           </div>
         </div>

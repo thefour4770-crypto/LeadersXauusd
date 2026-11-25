@@ -7,6 +7,7 @@ import {
   type ChartOverlaySeries,
   type Timeframe,
 } from '../types/market.ts';
+import { safeFixed } from '../utils/format.ts';
 import { isMarketClosedStatus } from '../utils/marketHours.ts';
 import { SmoothedPriceText } from './SmoothedPriceText.tsx';
 import { XauUsdChart } from './XauUsdChart.tsx';
@@ -98,13 +99,13 @@ const LeaderHeaderPrice = memo(function LeaderHeaderPrice({
               }`}
             >
               {quote.changeAbs >= 0 ? '+' : ''}
-              {quote.changeAbs.toFixed(2)} ({quote.changePct >= 0 ? '+' : ''}
-              {quote.changePct.toFixed(2)}%)
+              {safeFixed(quote.changeAbs)} ({quote.changePct >= 0 ? '+' : ''}
+              {safeFixed(quote.changePct)}%)
             </span>
           )}
           {quote && quote.freshness !== 'UNAVAILABLE' && (
             <span className="text-[11px] text-zinc-400">
-              Bid ${quote.bid.toFixed(2)} · Ask ${quote.ask.toFixed(2)}
+              Bid ${safeFixed(quote.bid)} · Ask ${safeFixed(quote.ask)}
             </span>
           )}
         </div>

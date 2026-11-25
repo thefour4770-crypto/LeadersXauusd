@@ -40,6 +40,7 @@ export interface StrategyDatasetsInput {
   tf15m: CandleDataset;
   tf5m: CandleDataset;
   tf1m: CandleDataset;
+  spot1mHistory?: Candle[];
 }
 
 export interface StrategyEvaluationOptions {
@@ -684,27 +685,30 @@ function validateFeedIntegrity(params: {
   if (usesFutures && finestFuturesEntry && spotPrice != null && futuresPrice != null && futuresBar) {
     let refFuturesForBasis = futuresPrice;
     let refSpotForBasis = spotPrice;
-    if (
-      finestFuturesEntry.ds.timeframe !== '1m' &&
-      !datasets.tf1m.candleSource.includes('GC=F') &&
-      closedSets.tf1m.length > 0
-    ) {
+    const refSpotSeries = !datasets.tf1m.candleSource.includes('GC=F')
+      ? closedSets.tf1m
+      : datasets.spot1mHistory ?? [];
+
+    if (refSpotSeries.length > 0) {
       const tfSec = TIMEFRAME_SECONDS[finestFuturesEntry.ds.timeframe];
       const fCandles = finestFuturesEntry.candles;
-      const maxSearch = Math.min(6, fCandles.length);
+      const maxSearch = Math.min(10, fCandles.length);
+      const maxTimeDiffSec = finestFuturesEntry.ds.timeframe === '1m' ? 120 : 600;
       for (let k = 1; k <= maxSearch; k++) {
         const probeFBar = fCandles[fCandles.length - k];
         const targetSpotTime = probeFBar.time + tfSec - 60;
         let bestSpotBar: Candle | null = null;
-        let bestDiff = 600;
-        for (const sBar of closedSets.tf1m) {
+        let bestDiff = maxTimeDiffSec;
+        for (let s = refSpotSeries.length - 1; s >= 0; s--) {
+          const sBar = refSpotSeries[s];
           const diff = Math.abs(sBar.time - targetSpotTime);
           if (diff <= bestDiff) {
             bestDiff = diff;
             bestSpotBar = sBar;
           }
+          if (sBar.time < targetSpotTime - maxTimeDiffSec) break;
         }
-        if (bestSpotBar) {
+        if (bestSpotBar && Number.isFinite(bestSpotBar.close) && bestSpotBar.close > 0) {
           refFuturesForBasis = Number(probeFBar.close.toFixed(2));
           refSpotForBasis = Number(bestSpotBar.close.toFixed(2));
           break;
@@ -1469,9 +1473,10 @@ export function evaluateStrictMultiTimeframeStrategy(
   // =========================================================================
   // 3. 5M — ENTRY SETUP & LIQUIDITY SWEEP / RETEST (25 pts + 15 pts)
   // =========================================================================
-  const atr5mRaw = getLatestAtrSafe(closed5m, 14) ?? 2.5;
+  const atr5mCandidate = getLatestAtrSafe(closed5m, 14);
+  const atr5mRaw = atr5mCandidate != null && Number.isFinite(atr5mCandidate) && atr5mCandidate > 0 ? atr5mCandidate : 2.5;
   const price5m = closed5m[closed5m.length - 1].close;
-  const atr5mPct = (atr5mRaw / price5m) * 100;
+  const atr5mPct = price5m > 0 ? (atr5mRaw / price5m) * 100 : 0;
   const volatilityRegime5m: Setup5MSummary['volatilityRegime'] =
     atr5mPct < 0.025 ? 'TOO_LOW' : atr5mPct > 1.3 ? 'TOO_HIGH' : 'VALID';
 
@@ -1663,9 +1668,9 @@ export function evaluateStrictMultiTimeframeStrategy(
     telemetryDir === 'BULLISH' ? stDir1m > 0 : telemetryDir === 'BEARISH' ? stDir1m < 0 : false;
   const rsiMomentumOk1m =
     telemetryDir === 'BULLISH'
-      ? rsi1m != null && rsi1m >= (mode === 'SURE' ? 42 : 44) && rsi1m <= (mode === 'SURE' ? 74 : 80)
+      ? rsi1m != null && rsi1m >= (mode === 'SURE' ? 42 : 40) && rsi1m <= (mode === 'SURE' ? 74 : 80)
       : telemetryDir === 'BEARISH'
-      ? rsi1m != null && rsi1m >= (mode === 'SURE' ? 28 : 20) && rsi1m <= (mode === 'SURE' ? 58 : 56)
+      ? rsi1m != null && rsi1m >= (mode === 'SURE' ? 28 : 20) && rsi1m <= (mode === 'SURE' ? 58 : 60)
       : false;
   const macdMomentumOk1m =
     telemetryDir === 'BULLISH'

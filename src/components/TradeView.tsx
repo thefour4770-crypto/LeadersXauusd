@@ -31,6 +31,7 @@ import {
   unsubscribeWebPush,
   type NotificationPermissionState,
 } from '../utils/phoneNotifications.ts';
+import { fetchWithTimeout, safeFixed, safeLocaleDateTime, safeLocaleTime } from '../utils/format.ts';
 import { isMarketClosedStatus } from '../utils/marketHours.ts';
 import { getReportSignalConfidence } from '../utils/signalConfidence.ts';
 import { AnalysisProcessingModal } from './AnalysisProcessingModal.tsx';
@@ -87,11 +88,16 @@ const TradeLivePriceStrip = memo(function TradeLivePriceStrip({
 
   const formattedUpdatedTime = useMemo(() => {
     if (!latestDataTs) return null;
-    return new Date(latestDataTs).toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
+    const formatted = safeLocaleTime(
+      latestDataTs,
+      {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      },
+      ''
+    );
+    return formatted || null;
   }, [latestDataTs]);
 
   return (
@@ -141,8 +147,8 @@ const TradeLivePriceStrip = memo(function TradeLivePriceStrip({
                   }`}
                 >
                   {quote.changeAbs >= 0 ? '+' : ''}
-                  {quote.changeAbs.toFixed(2)} ({quote.changePct >= 0 ? '+' : ''}
-                  {quote.changePct.toFixed(2)}%)
+                  {safeFixed(quote.changeAbs)} ({quote.changePct >= 0 ? '+' : ''}
+                  {safeFixed(quote.changePct)}%)
                 </span>
               )}
             </div>
@@ -157,9 +163,9 @@ const TradeLivePriceStrip = memo(function TradeLivePriceStrip({
         <div className="flex flex-col sm:items-end gap-1 text-xs font-mono tabular-nums text-zinc-400">
           {quote && quote.freshness !== 'UNAVAILABLE' && (
             <div>
-              Bid <span className="text-zinc-200">${quote.bid.toFixed(2)}</span> · Ask{' '}
-              <span className="text-zinc-200">${quote.ask.toFixed(2)}</span> · Spread{' '}
-              <span className="text-zinc-200">${quote.spread.toFixed(2)}</span>
+              Bid <span className="text-zinc-200">${safeFixed(quote.bid)}</span> · Ask{' '}
+              <span className="text-zinc-200">${safeFixed(quote.ask)}</span> · Spread{' '}
+              <span className="text-zinc-200">${safeFixed(quote.spread)}</span>
             </div>
           )}
           <div className="flex items-center gap-2">
@@ -295,7 +301,11 @@ export const TradeView = memo(function TradeView({
   const loadChartData = useCallback(async (tf: Timeframe, showSpinner = false) => {
     if (showSpinner) setChartLoading(true);
     try {
-      const candlesRes = await fetch(`/api/market/candles?timeframe=${encodeURIComponent(tf)}`);
+      const candlesRes = await fetchWithTimeout(
+        `/api/market/candles?timeframe=${encodeURIComponent(tf)}`,
+        { cache: 'no-store' },
+        15_000
+      );
       if (!candlesRes.ok) {
         const errJson = await candlesRes.json().catch(() => ({}));
         throw new Error(errJson.error || 'Market candle feed unavailable');
@@ -319,7 +329,7 @@ export const TradeView = memo(function TradeView({
 
   const loadSentiment = useCallback(async () => {
     try {
-      const res = await fetch('/api/market/sentiment');
+      const res = await fetchWithTimeout('/api/market/sentiment', { cache: 'no-store' }, 12_000);
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.sentiment) {
         throw new Error(json.error || 'DATA UNAVAILABLE');
@@ -377,11 +387,15 @@ export const TradeView = memo(function TradeView({
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch('/api/market/overlays', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ timeframe: activeChartTimeframe, indicators }),
-        });
+        const res = await fetchWithTimeout(
+          '/api/market/overlays',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ timeframe: activeChartTimeframe, indicators }),
+          },
+          12_000
+        );
         if (!res.ok || cancelled) return;
         const json = await res.json();
         if (!cancelled && Array.isArray(json.overlays)) {
@@ -486,14 +500,18 @@ export const TradeView = memo(function TradeView({
     stageTimersRef.current.push(window.setTimeout(() => setStageIndex((s) => Math.max(s, 3)), 850));
 
     try {
-      const res = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          timeframes: selectedTimeframes,
-          indicators,
-        }),
-      });
+      const res = await fetchWithTimeout(
+        '/api/analyze',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            timeframes: selectedTimeframes,
+            indicators,
+          }),
+        },
+        30_000
+      );
 
       const json = await res.json().catch(() => ({}));
       stageTimersRef.current.forEach((id) => clearTimeout(id));
@@ -551,7 +569,7 @@ export const TradeView = memo(function TradeView({
     () =>
       reports.map((report) => ({
         report,
-        dt: new Date(report.createdAt).toLocaleString([], {
+        dt: safeLocaleDateTime(report.createdAt, {
           month: 'short',
           day: 'numeric',
           hour: '2-digit',
@@ -884,7 +902,7 @@ export const TradeView = memo(function TradeView({
                 {showAnalysisHistory
                   ? 'Tap any saved result below · Tap header to close'
                   : reports.length > 0
-                  ? `Latest: ${reports[0].strategyEvaluation?.action ?? reports[0].classification} · $${reports[0].spotPrice.toFixed(2)} · Tap to open history`
+                  ? `Latest: ${reports[0].strategyEvaluation?.action ?? reports[0].classification} · $${safeFixed(reports[0].spotPrice)} · Tap to open history`
                   : 'Tap to open saved XAUUSD analysis history'}
               </div>
             </div>
@@ -958,15 +976,15 @@ export const TradeView = memo(function TradeView({
                             · {confidence.scorePct}% conf
                           </span>
                           <span className="text-[11px] font-mono tabular-nums text-zinc-200">
-                            · ${report.spotPrice.toFixed(2)}
+                            · ${safeFixed(report.spotPrice)}
                           </span>
                           <span className="text-[11px] font-mono text-zinc-400">· {dt}</span>
                         </div>
                         <div className="text-[11px] font-mono text-zinc-400 truncate">
-                          {report.selectedTimeframes.join(', ')} · {report.freshness}
+                          {(report.selectedTimeframes ?? []).join(', ')} · {report.freshness}
                           {report.tradeLevels && (
                             <span className="text-zinc-300">
-                              {' '}· SL ${report.tradeLevels.stopLoss.toFixed(2)} · TP ${report.tradeLevels.takeProfit1.toFixed(2)} ({report.tradeLevels.rewardRiskRatio1})
+                              {' '}· SL ${safeFixed(report.tradeLevels.stopLoss)} · TP ${safeFixed(report.tradeLevels.takeProfit1)} ({report.tradeLevels.rewardRiskRatio1})
                             </span>
                           )}
                         </div>

@@ -98,13 +98,13 @@ async function ensureVapidConfigured(): Promise<VapidKeyPair> {
     webpush.setVapidDetails(getVapidSubject(), cachedVapid.publicKey, cachedVapid.privateKey);
 
     if (!IS_TEST_ENV) {
+      const tmp = `${VAPID_FILE}.${Date.now()}.${Math.random().toString(36).slice(2, 7)}.tmp`;
       try {
         await fs.mkdir(DATA_DIR, { recursive: true });
-        const tmp = `${VAPID_FILE}.${Date.now()}.tmp`;
         await fs.writeFile(tmp, JSON.stringify(cachedVapid, null, 2), 'utf8');
         await fs.rename(tmp, VAPID_FILE);
       } catch {
-        // Non-fatal persistence error; keys still active for current process
+        await fs.unlink(tmp).catch(() => {});
       }
     }
 
@@ -142,11 +142,15 @@ function persistSubscriptions(): Promise<void> {
   saveQueue = saveQueue
     .catch(() => undefined)
     .then(async () => {
-      await fs.mkdir(DATA_DIR, { recursive: true });
-      const items = Array.from(subscriptionsMap.values()).slice(-MAX_SUBSCRIPTIONS);
-      const tmp = `${SUBSCRIPTIONS_FILE}.${Date.now()}.tmp`;
-      await fs.writeFile(tmp, JSON.stringify(items, null, 2), 'utf8');
-      await fs.rename(tmp, SUBSCRIPTIONS_FILE);
+      const tmp = `${SUBSCRIPTIONS_FILE}.${Date.now()}.${Math.random().toString(36).slice(2, 7)}.tmp`;
+      try {
+        await fs.mkdir(DATA_DIR, { recursive: true });
+        const items = Array.from(subscriptionsMap.values()).slice(-MAX_SUBSCRIPTIONS);
+        await fs.writeFile(tmp, JSON.stringify(items, null, 2), 'utf8');
+        await fs.rename(tmp, SUBSCRIPTIONS_FILE);
+      } catch {
+        await fs.unlink(tmp).catch(() => {});
+      }
     });
   return saveQueue;
 }
@@ -335,12 +339,15 @@ export async function sendTestPushToSubscription(
   return { delivered: summary.delivered > 0, attempted: summary.attempted };
 }
 
+const fmtUsd = (val: number | undefined): string =>
+  typeof val === 'number' && Number.isFinite(val) ? `$${val.toFixed(2)}` : '$—';
+
 export async function sendSureSignalWebPush(entry: SureSignalEntry): Promise<void> {
   const arrow = entry.direction === 'BUY' ? '▲ SURE BUY' : '▼ SURE SELL';
-  const title = `${arrow} · XAU/USD $${entry.spotPrice.toFixed(2)}`;
-  const body = `Score ${entry.setupScore ?? entry.confidencePct}/100 · Entry $${entry.tradeLevels.referencePrice.toFixed(
-    2
-  )} · SL $${entry.tradeLevels.stopLoss.toFixed(2)} · TP $${entry.tradeLevels.takeProfit1.toFixed(2)}`;
+  const title = `${arrow} · XAU/USD ${fmtUsd(entry.spotPrice)}`;
+  const body = `Score ${entry.setupScore ?? entry.confidencePct ?? 0}/100 · Entry ${fmtUsd(
+    entry.tradeLevels?.referencePrice
+  )} · SL ${fmtUsd(entry.tradeLevels?.stopLoss)} · TP ${fmtUsd(entry.tradeLevels?.takeProfit1)}`;
 
   await sendPushNotificationToAll({
     title,
@@ -367,12 +374,11 @@ export async function sendSureOutcomeWebPush(entry: SureSignalEntry): Promise<vo
     : isAmbiguous
     ? `AMBIGUOUS · SURE ${entry.direction} Closed`
     : `SL HIT · SURE ${entry.direction} Closed`;
-  const pnl = entry.pnlPoints ?? 0;
+  const pnl = typeof entry.pnlPoints === 'number' && Number.isFinite(entry.pnlPoints) ? entry.pnlPoints : 0;
   const pnlText = `${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} pts`;
-  const closeStr =
-    entry.closePrice != null ? `$${entry.closePrice.toFixed(2)}` : `$${entry.spotPrice.toFixed(2)}`;
-  const body = `Entry $${entry.tradeLevels.referencePrice.toFixed(
-    2
+  const closeStr = fmtUsd(entry.closePrice ?? entry.spotPrice);
+  const body = `Entry ${fmtUsd(
+    entry.tradeLevels?.referencePrice
   )} → Close ${closeStr} (${pnlText}). Auto-scanner resumed for next SURE signal.`;
 
   await sendPushNotificationToAll({

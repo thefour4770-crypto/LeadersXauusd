@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { createAutoPerfectIndicators } from '../src/constants/indicators.ts';
 import type {
+  AnalysisReport,
   Candle,
   CandleDataset,
   MarketQuote,
@@ -27,7 +28,12 @@ import {
   supertrendSeries,
 } from '../server/indicators.ts';
 import { isFreshSpotDataset } from '../server/analyzer.ts';
-import { validateCandleSeriesIntegrity } from '../server/marketData.ts';
+import { stitchFuturesContractRollovers, validateCandleSeriesIntegrity } from '../server/marketData.ts';
+import {
+  listReports,
+  saveReport,
+  setReportsStoreFile,
+} from '../server/reportsStore.ts';
 import {
   evaluateCandleOutcome,
   evaluateStrictMultiTimeframeStrategy,
@@ -41,6 +47,10 @@ import {
   setSureSignalsStoreFile,
   updateSureSignal,
 } from '../server/sureSignalsStore.ts';
+import {
+  getNextUtcMinuteScanMs,
+  isSureStatusStaleForMinute,
+} from '../server/sureScanner.ts';
 
 const NOW_SEC = 1_760_000_000;
 const NOW_MS = NOW_SEC * 1000;
@@ -1718,5 +1728,390 @@ test('30. validateFeedIntegrity matches timestamp-aligned prior 15m/1m bars for 
     `Expected backward bar-aligned basis near +$${OFFSET}, got ${res.evaluation.feedIntegrity.basisDiffUsd}`
   );
 });
+
+test('31. ANALYSIS mode never scores lower than SURE mode on identical datasets across 1M RSI edge cases', () => {
+  const indicators = createAutoPerfectIndicators();
+
+  for (const scenario of ['BULL', 'BEAR'] as const) {
+    const built = scenario === 'BULL' ? buildBullishDatasets(3780) : buildBearishDatasets(3780);
+    // Construct 1m pullback tail where 1M RSI sits inside SURE boundary edge (bull ~42.5-43.8, bear ~56.2-57.8)
+    const tweaked1m = built.datasets.tf1m.candles.map((c, idx, arr) => {
+      if (idx < arr.length - 18) return c;
+      const offset = scenario === 'BULL' ? -0.35 : +0.35;
+      const step = (idx - (arr.length - 18)) * offset;
+      const open = Number((c.open + step).toFixed(2));
+      const close = Number((c.close + step).toFixed(2));
+      return {
+        ...c,
+        open,
+        close,
+        high: Number((Math.max(open, close) + 0.6).toFixed(2)),
+        low: Number((Math.min(open, close) - 0.6).toFixed(2)),
+      };
+    });
+    const lastPrice = tweaked1m[tweaked1m.length - 1].close;
+    const ds = {
+      ...built.datasets,
+      tf1m: makeDataset('1m', tweaked1m),
+    };
+    const quote = makeQuote(lastPrice);
+
+    const sureRes = evaluateStrictMultiTimeframeStrategy({
+      datasets: ds,
+      quote,
+      indicatorConfigs: indicators,
+      mode: 'SURE',
+      nowMs: NOW_MS,
+    });
+    const analysisRes = evaluateStrictMultiTimeframeStrategy({
+      datasets: ds,
+      quote,
+      indicatorConfigs: indicators,
+      mode: 'ANALYSIS',
+      nowMs: NOW_MS,
+    });
+
+    assert.ok(
+      analysisRes.evaluation.totalScore >= sureRes.evaluation.totalScore,
+      `${scenario}: ANALYSIS score (${analysisRes.evaluation.totalScore}) must never drop below SURE score (${sureRes.evaluation.totalScore})`
+    );
+  }
+});
+
+test('32. SURE scanner UTC minute alignment and staleness detection sync Chrome and App scans', () => {
+  const baseMinMs = Math.floor(NOW_MS / 60_000) * 60_000;
+
+  // Before :02s in current minute -> schedules current minute :03s
+  assert.equal(getNextUtcMinuteScanMs(baseMinMs + 500), baseMinMs + 3_000);
+  // Past :03s -> schedules next minute :03s
+  assert.equal(getNextUtcMinuteScanMs(baseMinMs + 12_000), baseMinMs + 63_000);
+
+  // Scan from previous minute becomes stale once current minute reaches :03s
+  const prevMinScanIso = new Date(baseMinMs - 57_000).toISOString();
+  assert.equal(
+    isSureStatusStaleForMinute({ tradeLocked: false, lastScannedAt: prevMinScanIso }, baseMinMs + 1_500),
+    false
+  );
+  assert.equal(
+    isSureStatusStaleForMinute({ tradeLocked: false, lastScannedAt: prevMinScanIso }, baseMinMs + 3_500),
+    true
+  );
+
+  // Active trade lock never forces redundant re-scan
+  assert.equal(
+    isSureStatusStaleForMinute({ tradeLocked: true, lastScannedAt: prevMinScanIso }, baseMinMs + 45_000),
+    false
+  );
+});
+
+test('33. stitchFuturesContractRollovers back-adjusts 1m step-gaps and 5m/1H hybrid contract transitions without inflating ATR or volume', () => {
+  const shiftUsd = 32.4;
+
+  // Build 30 1m bars where bar index 24 jumps +$32.40 with huge rollover volume
+  const bars1m: Candle[] = Array.from({ length: 30 }, (_, idx) => {
+    const t = NOW_SEC - (30 - idx) * 60;
+    const base = idx < 24 ? 3529 + idx * 0.05 : 3529 + idx * 0.05 + shiftUsd;
+    const isRoll = idx === 24;
+    return {
+      time: t,
+      open: Number(base.toFixed(2)),
+      high: Number((base + 0.6).toFixed(2)),
+      low: Number((base - 0.5).toFixed(2)),
+      close: Number((base + 0.1).toFixed(2)),
+      volume: isRoll ? 18_400 : 40,
+    };
+  });
+
+  const res1m = stitchFuturesContractRollovers(bars1m, '1m');
+  assert.equal(res1m.rollovers.length, 1);
+  assert.ok(Math.abs(res1m.rollovers[0].shiftUsd - shiftUsd) < 0.5);
+  // Bar 23 (pre-rollover) should be shifted up cleanly to match bar 24
+  assert.ok(
+    Math.abs(res1m.candles[24].open - res1m.candles[23].close) < 1.0,
+    `Expected stitched 1m step gap near 0, got ${res1m.candles[24].open - res1m.candles[23].close}`
+  );
+  assert.ok(res1m.candles[24].volume < 100, `Rollover bar volume must be normalized, got ${res1m.candles[24].volume}`);
+
+  // Now simulate 5m hybrid transition bar containing a mid-bar 1m rollover anchor
+  const bars5m: Candle[] = Array.from({ length: 28 }, (_, idx) => {
+    const t = NOW_SEC - (28 - idx) * 300;
+    if (idx < 22) {
+      const p = 3529 + idx * 0.1;
+      return { time: t, open: p, high: p + 0.8, low: p - 0.7, close: p + 0.1, volume: 130 };
+    }
+    if (idx === 22) {
+      // Hybrid bar opens on old contract (3531.2) and closes on new contract (3563.7)
+      return {
+        time: t,
+        open: 3531.2,
+        high: 3564.5,
+        low: 3530.5,
+        close: 3563.7,
+        volume: 18_800,
+      };
+    }
+    const p = 3563.7 + (idx - 22) * 0.1;
+    return { time: t, open: p, high: p + 0.8, low: p - 0.7, close: p + 0.1, volume: 140 };
+  });
+
+  const anchorTime5m = bars5m[22].time + 60; // mid-bar rollover matching 1m detection
+  const res5m = stitchFuturesContractRollovers(bars5m, '5m', {
+    externalAnchors: [{ timeSec: anchorTime5m, shiftUsd }],
+  });
+  assert.equal(res5m.rollovers.length, 1);
+  // Pre-rollover candle shifted by +32.4 and hybrid bar low/open back-adjusted cleanly
+  assert.ok(res5m.candles[21].close > 3560, `Expected prior 5m bar shifted onto new contract, got ${res5m.candles[21].close}`);
+  assert.ok(
+    res5m.candles[22].high - res5m.candles[22].low < 5,
+    `Expected repaired 5m hybrid bar range < $5, got ${res5m.candles[22].high - res5m.candles[22].low}`
+  );
+  assert.ok(res5m.candles[22].volume < 500, `Expected capped 5m rollover volume, got ${res5m.candles[22].volume}`);
+});
+
+test('34. stitchFuturesContractRollovers preserves weekend gaps and genuine high-volatility news spikes', () => {
+  // 1) Genuine news spike where Spot and Futures move together (+$20 with high volume, zero basis jump)
+  const newsFutures: Candle[] = [];
+  const spot1m: Candle[] = [];
+  for (let idx = 0; idx < 26; idx++) {
+    const t = NOW_SEC - (26 - idx) * 300;
+    const spikeOffset = idx >= 20 ? 18 : 0;
+    const fBase = 3560 + spikeOffset;
+    const sBase = 3535 + spikeOffset;
+    newsFutures.push({
+      time: t,
+      open: idx === 20 ? 3560 : fBase,
+      high: fBase + 2.5,
+      low: (idx === 20 ? 3560 : fBase) - 0.8,
+      close: fBase + 1.5,
+      volume: idx === 20 ? 1_600 : 180,
+    });
+    for (let m = 0; m < 5; m++) {
+      spot1m.push({
+        time: t + m * 60,
+        open: sBase,
+        high: sBase + 1.5,
+        low: sBase - 1.0,
+        close: sBase + 1.0,
+        volume: 20,
+      });
+    }
+  }
+
+  const newsRes = stitchFuturesContractRollovers(newsFutures, '5m', { spot1mCandles: spot1m });
+  assert.equal(newsRes.rollovers.length, 0, 'Genuine news spike where Spot moves with Futures must NOT be stitched');
+  assert.equal(newsRes.candles[19].close, newsFutures[19].close);
+
+  // 2) Weekend gap (>= 6 hours between bars) must NOT be treated as a rollover
+  const weekendBars: Candle[] = Array.from({ length: 24 }, (_, idx) => {
+    const t = idx < 18 ? NOW_SEC - 100_000 + idx * 300 : NOW_SEC - (24 - idx) * 300;
+    const p = idx < 18 ? 3520 : 3555;
+    return { time: t, open: p, high: p + 1, low: p - 1, close: p + 0.2, volume: idx === 18 ? 1_200 : 120 };
+  });
+  const weekendRes = stitchFuturesContractRollovers(weekendBars, '5m');
+  assert.equal(weekendRes.rollovers.length, 0, 'Weekend opening gap must never be altered');
+});
+
+test('35. validateFeedIntegrity aligns GC=F 1m futures against contemporaneous spot1mHistory even if live quote drifted', () => {
+  const indicators = createAutoPerfectIndicators();
+  const bull = buildBullishDatasets(3780);
+  const BASIS = 26.5;
+
+  const shiftSet = (bars: Candle[]) =>
+    bars.map((c) => ({
+      ...c,
+      open: Number((c.open + BASIS).toFixed(2)),
+      high: Number((c.high + BASIS).toFixed(2)),
+      low: Number((c.low + BASIS).toFixed(2)),
+      close: Number((c.close + BASIS).toFixed(2)),
+    }));
+
+  const spotHistory = bull.datasets.tf1m.candles;
+  const gcf1m = shiftSet(spotHistory).slice(0, -10); // Delayed GC=F 1m ending 10 mins earlier
+  const gcf5m = shiftSet(bull.datasets.tf5m.candles);
+  const gcf15m = shiftSet(bull.datasets.tf15m.candles);
+  const gcf1H = shiftSet(bull.datasets.tf1H.candles);
+
+  // Live quote jumped +12 above the delayed spot tail, which would widen basis artificially if unaligned
+  const res = evaluateStrictMultiTimeframeStrategy({
+    datasets: {
+      tf1H: makeDataset('1H', gcf1H, 'Yahoo Finance COMEX Gold (GC=F)'),
+      tf15m: makeDataset('15m', gcf15m, 'Yahoo Finance COMEX Gold (GC=F)'),
+      tf5m: makeDataset('5m', gcf5m, 'Yahoo Finance COMEX Gold (GC=F)'),
+      tf1m: makeDataset('1m', gcf1m, 'Yahoo Finance COMEX Gold (GC=F)'),
+      spot1mHistory: spotHistory,
+    },
+    quote: makeQuote(bull.quote.mid + 12.0),
+    indicatorConfigs: indicators,
+    mode: 'ANALYSIS',
+    nowMs: NOW_MS,
+  });
+
+  assert.equal(res.evaluation.feedIntegrity.valid, true);
+  assert.ok(
+    res.evaluation.feedIntegrity.basisDiffUsd != null &&
+      Math.abs(res.evaluation.feedIntegrity.basisDiffUsd - BASIS) < 1.5,
+    `Expected contemporaneous spot1mHistory basis ~+$${BASIS}, got ${res.evaluation.feedIntegrity.basisDiffUsd}`
+  );
+});
+
+test('36. reportsStore serializes concurrent writes and filters corrupt records from disk', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'leaders-reports-'));
+  const storePath = path.join(tmpDir, 'reports.json');
+  setReportsStoreFile(storePath);
+
+  try {
+    // Seed file with one corrupt record and one valid record
+    await fs.writeFile(
+      storePath,
+      JSON.stringify([
+        { id: 'broken-no-tf', createdAt: new Date(NOW_MS).toISOString() },
+        {
+          id: 'valid-seed',
+          createdAt: new Date(NOW_MS - 10_000).toISOString(),
+          classification: 'HOLD',
+          spotPrice: 3780,
+          timeframeAnalyses: [{ timeframe: '1H' }],
+        },
+      ]),
+      'utf8'
+    );
+
+    const makeReport = (idx: number): AnalysisReport => ({
+      id: `rep-${idx}`,
+      createdAt: new Date(NOW_MS + idx * 1_000).toISOString(),
+      marketDataTimestamp: NOW_MS,
+      freshness: 'LIVE',
+      spotPrice: 3780 + idx,
+      spotBid: 3779.7 + idx,
+      spotAsk: 3780.3 + idx,
+      spotSource: 'Test',
+      candleSource: 'Test',
+      selectedTimeframes: [idx % 2 === 0 ? '1m' : '5m', '15m'],
+      selectedIndicators: createAutoPerfectIndicators()
+        .slice(0, idx + 1)
+        .map((ind) => ({
+          id: ind.id,
+          name: ind.id.toUpperCase(),
+          category: 'TREND' as const,
+          params: ind.params,
+        })),
+      timeframeAnalyses: [
+        {
+          timeframe: '15m',
+          classification: 'HOLD',
+          candleCount: 100,
+          latestClose: 3780,
+          latestTimestamp: NOW_MS,
+          freshness: 'LIVE',
+          candleSource: 'Test',
+          volumeNote: 'ok',
+          combinedScore: 0,
+          trendScore: 0,
+          momentumScore: 0,
+          volatilityState: '$1.50',
+          volumeState: '1.0x',
+          supportLevels: [],
+          resistanceLevels: [],
+          indicatorResults: [],
+          agreements: [],
+          conflicts: [],
+          summary: 'ok',
+        },
+      ],
+      classification: idx % 2 === 0 ? 'BUY' : 'SELL',
+      combinedScore: 0,
+      signalConfidence: {
+        scorePct: 50,
+        tier: 'MODERATE',
+        agreeingVotes: 1,
+        opposingVotes: 0,
+        neutralVotes: 0,
+        totalVotes: 1,
+        buyVotes: 1,
+        sellVotes: 0,
+        holdVotes: 0,
+        alignedTimeframes: 1,
+        totalTimeframes: 1,
+        summary: 'ok',
+      },
+      reasons: [],
+      agreements: [],
+      conflicts: [],
+      supportLevels: [],
+      resistanceLevels: [],
+      combinedMethodology: 'ok',
+      shortVsLongComparison: 'ok',
+      uncertaintyExplanation: 'ok',
+    });
+
+    await Promise.all([saveReport(makeReport(1)), saveReport(makeReport(2)), saveReport(makeReport(3))]);
+
+    const loaded = await listReports();
+    assert.equal(loaded.length, 4, `Expected 3 concurrent saves + 1 valid seed, got ${loaded.length}`);
+    assert.ok(!loaded.some((r) => r.id === 'broken-no-tf'), 'Corrupt entry must be filtered out');
+  } finally {
+    setReportsStoreFile(null);
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('37. sureSignalsStore filters corrupt disk entries and ignores invalid records safely', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'leaders-sure-corrupt-'));
+  const storePath = path.join(tmpDir, 'sure-signals.json');
+  setSureSignalsStoreFile(storePath);
+
+  try {
+    await fs.writeFile(
+      storePath,
+      JSON.stringify([
+        { id: '', status: 'ACTIVE' },
+        { id: 'missing-levels', direction: 'BUY', status: 'TP_HIT', spotPrice: 3780 },
+        {
+          id: 'valid-closed',
+          createdAt: new Date(NOW_MS - 60_000).toISOString(),
+          closedAt: new Date(NOW_MS - 10_000).toISOString(),
+          status: 'TP_HIT',
+          direction: 'BUY',
+          spotPrice: 3780,
+          closePrice: 3792,
+          pnlPoints: 12,
+          setupScore: 92,
+          scoreCategory: 'HIGH CONFIDENCE TRADE',
+          confidencePct: 92,
+          riskRewardRatio: '1 : 2.00',
+          adxValue: 26,
+          timeframes: ['1H', '15m', '5m', '1m'],
+          summary: 'ok',
+          tradeLevels: {
+            referenceTimeframe: '15m',
+            referencePrice: 3780,
+            atrValue: 3.5,
+            stopLoss: 3774,
+            takeProfit1: 3792,
+            takeProfit2: 3792,
+            riskPoints: 6,
+            rewardRiskRatio1: '1 : 2.00',
+            rewardRiskRatio2: '1 : 2.00',
+            methodology: 'ok',
+          },
+          checks: [],
+        },
+      ]),
+      'utf8'
+    );
+
+    const list = await listSureSignals();
+    assert.equal(list.length, 1);
+    assert.equal(list[0].id, 'valid-closed');
+    const stats = computeSureHistoryStats(list);
+    assert.equal(stats.tpHits, 1);
+    assert.equal(stats.winRatePct, 100);
+  } finally {
+    setSureSignalsStoreFile(null);
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+
 
 

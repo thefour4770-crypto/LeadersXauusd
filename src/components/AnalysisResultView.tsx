@@ -7,6 +7,7 @@ import {
   triggerJpgDownload,
   type RenderedJpgReport,
 } from '../utils/exportReportJpg.ts';
+import { safeFixed, safeLocaleDateTime, safeLocaleTime, safeNumber } from '../utils/format.ts';
 import {
   computeTimeframeConfidencePct,
   getReportSignalConfidence,
@@ -98,7 +99,7 @@ export function AnalysisResultView({
   const holdPct = Math.round((confidence.holdVotes / totalVotesSafe) * 100);
   const sellPct = Math.max(0, 100 - buyPct - holdPct);
 
-  const formattedReportDate = new Date(report.createdAt).toLocaleString([], {
+  const formattedReportDate = safeLocaleDateTime(report.createdAt, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -107,7 +108,7 @@ export function AnalysisResultView({
     second: '2-digit',
   });
 
-  const formattedMarketTs = new Date(report.marketDataTimestamp).toLocaleString([], {
+  const formattedMarketTs = safeLocaleDateTime(report.marketDataTimestamp, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -127,11 +128,15 @@ export function AnalysisResultView({
   const ActionIcon = actionStyle.Icon;
 
   const formattedValidUntil = strat?.validUntil
-    ? new Date(strat.validUntil).toLocaleTimeString([], {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      })
+    ? safeLocaleTime(
+        strat.validUntil,
+        {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        },
+        ''
+      ) || null
     : null;
 
   return (
@@ -210,14 +215,14 @@ export function AnalysisResultView({
 
           <div className="text-left sm:text-right font-mono tabular-nums space-y-1">
             <div className="text-xs text-zinc-400">Current XAUUSD Price</div>
-            <div className="text-2xl font-bold text-zinc-100">${report.spotPrice.toFixed(2)}</div>
+            <div className="text-2xl font-bold text-zinc-100">${safeFixed(report.spotPrice)}</div>
             <div className="text-[11px] text-zinc-400">
-              Bid ${report.spotBid.toFixed(2)} · Ask ${report.spotAsk.toFixed(2)}
+              Bid ${safeFixed(report.spotBid)} · Ask ${safeFixed(report.spotAsk)}
             </div>
             <div className="text-[11px] text-zinc-400">
               {formattedValidUntil
                 ? `Valid until ${formattedValidUntil}`
-                : `Composite Score ${report.combinedScore >= 0 ? '+' : ''}${report.combinedScore.toFixed(3)}`}
+                : `Composite Score ${safeNumber(report.combinedScore) >= 0 ? '+' : ''}${safeFixed(report.combinedScore, 3, '0.000')}`}
             </div>
           </div>
         </div>
@@ -314,7 +319,7 @@ export function AnalysisResultView({
               Entry, Stop Loss & Single Take Profit ({displayAction})
             </h2>
             <span className="text-[11px] font-mono text-zinc-400">
-              {report.tradeLevels.referenceTimeframe} ATR(14): ${report.tradeLevels.atrValue.toFixed(2)} · Risk: ${report.tradeLevels.riskPoints.toFixed(2)} · R:R {report.tradeLevels.rewardRiskRatio1}
+              {report.tradeLevels.referenceTimeframe} ATR(14): ${safeFixed(report.tradeLevels.atrValue)} · Risk: ${safeFixed(report.tradeLevels.riskPoints)} · R:R {report.tradeLevels.rewardRiskRatio1}
             </span>
           </div>
 
@@ -322,7 +327,7 @@ export function AnalysisResultView({
             <div className="rounded-xl bg-[#0D0E12] border border-[#D4AF37]/25 p-3 space-y-1">
               <div className="text-[11px] text-zinc-400">Entry Price</div>
               <div className="text-base font-bold text-zinc-100">
-                ${report.tradeLevels.referencePrice.toFixed(2)}
+                ${safeFixed(report.tradeLevels.referencePrice)}
               </div>
               <div className="text-[10px] text-zinc-500">Spot XAU/USD at generation</div>
             </div>
@@ -330,17 +335,17 @@ export function AnalysisResultView({
             <div className="rounded-xl bg-[#0D0E12] border border-red-500/30 p-3 space-y-1">
               <div className="text-[11px] text-red-400 font-semibold">Stop Loss (SL)</div>
               <div className="text-base font-bold text-red-400">
-                ${report.tradeLevels.stopLoss.toFixed(2)}
+                ${safeFixed(report.tradeLevels.stopLoss)}
               </div>
               <div className="text-[10px] text-zinc-500">
-                -${report.tradeLevels.riskPoints.toFixed(2)} risk
+                -${safeFixed(report.tradeLevels.riskPoints)} risk
               </div>
             </div>
 
             <div className="rounded-xl bg-[#0D0E12] border border-emerald-500/30 p-3 space-y-1">
               <div className="text-[11px] text-emerald-400 font-semibold">Take Profit (TP)</div>
               <div className="text-base font-bold text-emerald-400">
-                ${report.tradeLevels.takeProfit1.toFixed(2)}
+                ${safeFixed(report.tradeLevels.takeProfit1)}
               </div>
               <div className="text-[10px] text-zinc-500">
                 R:R {report.tradeLevels.rewardRiskRatio1}
@@ -432,7 +437,7 @@ export function AnalysisResultView({
               </div>
               <p className="text-[11px] text-zinc-400 leading-relaxed">{strat.confirmation1M.summary}</p>
               <div className="text-[10px] font-mono text-zinc-500">
-                Closed Candle: {strat.confirmation1M.closedCandleTime ? new Date(strat.confirmation1M.closedCandleTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'N/A'} · EMA:{strat.confirmation1M.emaAligned ? '✓' : '✕'} ST:{strat.confirmation1M.supertrendAligned ? '✓' : '✕'} DMI:{strat.confirmation1M.dmiAligned ? '✓' : '✕'}
+                Closed Candle: {safeLocaleTime(strat.confirmation1M.closedCandleTime, { hour: '2-digit', minute: '2-digit' }, 'N/A')} · EMA:{strat.confirmation1M.emaAligned ? '✓' : '✕'} ST:{strat.confirmation1M.supertrendAligned ? '✓' : '✕'} DMI:{strat.confirmation1M.dmiAligned ? '✓' : '✕'}
               </div>
             </div>
           </div>
@@ -617,7 +622,7 @@ export function AnalysisResultView({
               {report.supportLevels.length > 0 ? (
                 report.supportLevels.map((lvl) => (
                   <div key={lvl} className="text-sm text-zinc-100">
-                    ${lvl.toFixed(2)}
+                    ${safeFixed(lvl)}
                   </div>
                 ))
               ) : (
@@ -629,7 +634,7 @@ export function AnalysisResultView({
               {report.resistanceLevels.length > 0 ? (
                 report.resistanceLevels.map((lvl) => (
                   <div key={lvl} className="text-sm text-zinc-100">
-                    ${lvl.toFixed(2)}
+                    ${safeFixed(lvl)}
                   </div>
                 ))
               ) : (
@@ -694,8 +699,8 @@ export function AnalysisResultView({
                         · {tfConfidence}% confidence
                       </span>
                       <span className="text-[11px] font-mono text-zinc-400">
-                        · Score {tf.combinedScore >= 0 ? '+' : ''}
-                        {tf.combinedScore.toFixed(2)}
+                        · Score {safeNumber(tf.combinedScore) >= 0 ? '+' : ''}
+                        {safeFixed(tf.combinedScore, 2, '0.00')}
                       </span>
                     </div>
                     <p className="text-xs text-zinc-400 truncate">{tf.summary}</p>
@@ -710,12 +715,12 @@ export function AnalysisResultView({
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono tabular-nums">
                       <div className="rounded-xl bg-[#0C0D11] p-2.5 border border-[#D4AF37]/22">
                         <div className="text-[10px] text-zinc-500">Latest Close</div>
-                        <div className="text-zinc-100 font-semibold">${tf.latestClose.toFixed(2)}</div>
+                        <div className="text-zinc-100 font-semibold">${safeFixed(tf.latestClose)}</div>
                       </div>
                       <div className="rounded-xl bg-[#0C0D11] p-2.5 border border-[#D4AF37]/22">
                         <div className="text-[10px] text-zinc-500">Trend / Momentum</div>
                         <div className="text-zinc-100 font-semibold">
-                          {tf.trendScore.toFixed(2)} / {tf.momentumScore.toFixed(2)}
+                          {safeFixed(tf.trendScore, 2, '0.00')} / {safeFixed(tf.momentumScore, 2, '0.00')}
                         </div>
                       </div>
                       <div className="rounded-xl bg-[#0C0D11] p-2.5 border border-[#D4AF37]/22">

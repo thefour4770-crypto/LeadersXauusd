@@ -18,6 +18,7 @@ import {
   subscribeLiveQuoteTicks,
 } from '../contexts/LiveQuoteContext.tsx';
 import type { Candle, ChartOverlaySeries, MarketQuote, Timeframe } from '../types/market.ts';
+import { safeFixed, safeLocaleDateTime } from '../utils/format.ts';
 
 const TIMEFRAME_SECONDS: Record<Timeframe, number> = {
   '1m': 60,
@@ -147,10 +148,10 @@ export const XauUsdChart = memo(function XauUsdChart({
 
   const syncOhlcDom = useCallback((bar: Candle) => {
     if (readoutRef.current !== null) return;
-    if (ohlcOpenRef.current) ohlcOpenRef.current.textContent = bar.open.toFixed(2);
-    if (ohlcHighRef.current) ohlcHighRef.current.textContent = bar.high.toFixed(2);
-    if (ohlcLowRef.current) ohlcLowRef.current.textContent = bar.low.toFixed(2);
-    if (ohlcCloseRef.current) ohlcCloseRef.current.textContent = bar.close.toFixed(2);
+    if (ohlcOpenRef.current) ohlcOpenRef.current.textContent = safeFixed(bar.open);
+    if (ohlcHighRef.current) ohlcHighRef.current.textContent = safeFixed(bar.high);
+    if (ohlcLowRef.current) ohlcLowRef.current.textContent = safeFixed(bar.low);
+    if (ohlcCloseRef.current) ohlcCloseRef.current.textContent = safeFixed(bar.close);
   }, []);
 
   const pushCandleAndVolumeToChart = useCallback(
@@ -158,37 +159,56 @@ export const XauUsdChart = memo(function XauUsdChart({
       const candleSeries = candleSeriesRef.current;
       const volumeSeries = volumeSeriesRef.current;
       if (!candleSeries) return;
-
-      candleSeries.update({
-        time: bar.time as Time,
-        open: bar.open,
-        high: bar.high,
-        low: bar.low,
-        close: bar.close,
-      });
-
-      const isUp = bar.close >= bar.open;
-      if (lastPriceLineUpRef.current !== isUp) {
-        lastPriceLineUpRef.current = isUp;
-        candleSeries.applyOptions({
-          priceLineColor: isUp ? '#10B981' : '#EF4444',
-        });
+      if (
+        !Number.isFinite(bar.time) ||
+        bar.time <= 0 ||
+        !Number.isFinite(bar.open) ||
+        !Number.isFinite(bar.high) ||
+        !Number.isFinite(bar.low) ||
+        !Number.isFinite(bar.close)
+      ) {
+        return;
+      }
+      if (renderedBarRef.current && bar.time < renderedBarRef.current.time) {
+        return;
       }
 
-      if (volumeSeries && showVolumeRef.current) {
-        const volVal = hasExchangeVolumeRef.current
-          ? bar.volume
-          : Math.round((bar.high - bar.low) * 100 + Math.abs(bar.close - bar.open) * 50);
-        volumeSeries.update({
+      try {
+        candleSeries.update({
           time: bar.time as Time,
-          value: volVal,
-          color: isUp ? 'rgba(16, 185, 129, 0.28)' : 'rgba(239, 68, 68, 0.28)',
+          open: bar.open,
+          high: bar.high,
+          low: bar.low,
+          close: bar.close,
         });
-      }
 
-      renderedBarRef.current = bar;
-      candleMapRef.current.set(bar.time, bar);
-      syncOhlcDom(bar);
+        const isUp = bar.close >= bar.open;
+        if (lastPriceLineUpRef.current !== isUp) {
+          lastPriceLineUpRef.current = isUp;
+          candleSeries.applyOptions({
+            priceLineColor: isUp ? '#10B981' : '#EF4444',
+          });
+        }
+
+        if (volumeSeries && showVolumeRef.current) {
+          const volVal = hasExchangeVolumeRef.current
+            ? Number.isFinite(bar.volume)
+              ? bar.volume
+              : 0
+            : Math.round((bar.high - bar.low) * 100 + Math.abs(bar.close - bar.open) * 50);
+          volumeSeries.update({
+            time: bar.time as Time,
+            value: Number.isFinite(volVal) ? Math.max(0, volVal) : 0,
+            color: isUp ? 'rgba(16, 185, 129, 0.28)' : 'rgba(239, 68, 68, 0.28)',
+          });
+        }
+
+        renderedBarRef.current = bar;
+        candleMapRef.current.set(bar.time, bar);
+        syncOhlcDom(bar);
+      } catch {
+        // Ignore lightweight-charts update mismatch during concurrent history reload
+      }
     },
     [syncOhlcDom]
   );
@@ -349,7 +369,7 @@ export const XauUsdChart = memo(function XauUsdChart({
           low: bar.low,
           close: bar.close,
           volume: bar.volume,
-          time: new Date(bar.time * 1000).toLocaleString([], {
+          time: safeLocaleDateTime(bar.time * 1000, {
             month: 'short',
             day: 'numeric',
             hour: '2-digit',
@@ -449,23 +469,39 @@ export const XauUsdChart = memo(function XauUsdChart({
     lastSeriesSigRef.current = prevHistorySig;
 
     const map = new Map<number, Candle>();
-    for (const c of synced) map.set(c.time, c);
+    for (const c of synced) {
+      if (
+        Number.isFinite(c.time) &&
+        c.time > 0 &&
+        Number.isFinite(c.open) &&
+        Number.isFinite(c.high) &&
+        Number.isFinite(c.low) &&
+        Number.isFinite(c.close)
+      ) {
+        map.set(c.time, c);
+      }
+    }
+    const cleanSynced = Array.from(map.values()).sort((a, b) => a.time - b.time);
     candleMapRef.current = map;
 
-    if (synced.length === 0) {
-      candleSeries.setData([]);
-      volumeSeries.setData([]);
+    if (cleanSynced.length === 0) {
+      try {
+        candleSeries.setData([]);
+        volumeSeries.setData([]);
+      } catch {
+        // Ignore teardown/resize race
+      }
       renderedBarRef.current = null;
       targetBarRef.current = null;
       lastPriceLineUpRef.current = null;
       return;
     }
 
-    const targetLatest = { ...synced[synced.length - 1] };
+    const targetLatest = { ...cleanSynced[cleanSynced.length - 1] };
     // Preserve smooth in-flight close when 5s background candles refresh on the same bar
-    const displaySynced = synced.map((c, idx) => {
+    const displaySynced = cleanSynced.map((c, idx) => {
       if (
-        idx === synced.length - 1 &&
+        idx === cleanSynced.length - 1 &&
         prevRendered &&
         prevRendered.time === c.time &&
         Math.abs(prevRendered.close - c.close) >= 0.005
@@ -480,62 +516,68 @@ export const XauUsdChart = memo(function XauUsdChart({
       return c;
     });
 
-    candleSeries.setData(
-      displaySynced.map((c) => ({
-        time: c.time as Time,
-        open: c.open,
-        high: c.high,
-        low: c.low,
-        close: c.close,
-      }))
-    );
-
-    const drawnLast = displaySynced[displaySynced.length - 1];
-    const drawnUp = drawnLast.close >= drawnLast.open;
-    if (lastPriceLineUpRef.current !== drawnUp) {
-      lastPriceLineUpRef.current = drawnUp;
-      candleSeries.applyOptions({
-        priceLineColor: drawnUp ? '#10B981' : '#EF4444',
-      });
-    }
-    renderedBarRef.current = { ...drawnLast };
-    targetBarRef.current = targetLatest;
-    syncOhlcDom(drawnLast);
-
-    if (showVolume) {
-      volumeSeries.setData(
-        displaySynced.map((c) => {
-          const val = hasExchangeVolume
-            ? c.volume
-            : Math.round((c.high - c.low) * 100 + Math.abs(c.close - c.open) * 50);
-          return {
-            time: c.time as Time,
-            value: val,
-            color: c.close >= c.open ? 'rgba(16, 185, 129, 0.28)' : 'rgba(239, 68, 68, 0.28)',
-          };
-        })
+    try {
+      candleSeries.setData(
+        displaySynced.map((c) => ({
+          time: c.time as Time,
+          open: c.open,
+          high: c.high,
+          low: c.low,
+          close: c.close,
+        }))
       );
-    } else {
-      volumeSeries.setData([]);
-    }
 
-    chart.priceScale('right').applyOptions({
-      scaleMargins: { top: 0.08, bottom: showVolume ? 0.2 : 0.08 },
-    });
-
-    if (timeframeChanged) {
-      if (animFrameRef.current !== null) {
-        cancelAnimationFrame(animFrameRef.current);
-        animFrameRef.current = null;
+      const drawnLast = displaySynced[displaySynced.length - 1];
+      const drawnUp = drawnLast.close >= drawnLast.open;
+      if (lastPriceLineUpRef.current !== drawnUp) {
+        lastPriceLineUpRef.current = drawnUp;
+        candleSeries.applyOptions({
+          priceLineColor: drawnUp ? '#10B981' : '#EF4444',
+        });
       }
-      const visibleCount = Math.min(displaySynced.length, 75);
-      chart.timeScale().setVisibleLogicalRange({
-        from: Math.max(0, displaySynced.length - visibleCount),
-        to: displaySynced.length + 2,
+      renderedBarRef.current = { ...drawnLast };
+      targetBarRef.current = targetLatest;
+      syncOhlcDom(drawnLast);
+
+      if (showVolume) {
+        volumeSeries.setData(
+          displaySynced.map((c) => {
+            const val = hasExchangeVolume
+              ? Number.isFinite(c.volume)
+                ? c.volume
+                : 0
+              : Math.round((c.high - c.low) * 100 + Math.abs(c.close - c.open) * 50);
+            return {
+              time: c.time as Time,
+              value: Number.isFinite(val) ? Math.max(0, val) : 0,
+              color: c.close >= c.open ? 'rgba(16, 185, 129, 0.28)' : 'rgba(239, 68, 68, 0.28)',
+            };
+          })
+        );
+      } else {
+        volumeSeries.setData([]);
+      }
+
+      chart.priceScale('right').applyOptions({
+        scaleMargins: { top: 0.08, bottom: showVolume ? 0.2 : 0.08 },
       });
-      lastFittedTfRef.current = timeframe;
-    } else if (Math.abs(targetLatest.close - drawnLast.close) >= 0.005) {
-      ensureRafLoopRunning();
+
+      if (timeframeChanged) {
+        if (animFrameRef.current !== null) {
+          cancelAnimationFrame(animFrameRef.current);
+          animFrameRef.current = null;
+        }
+        const visibleCount = Math.min(displaySynced.length, 75);
+        chart.timeScale().setVisibleLogicalRange({
+          from: Math.max(0, displaySynced.length - visibleCount),
+          to: displaySynced.length + 2,
+        });
+        lastFittedTfRef.current = timeframe;
+      } else if (Math.abs(targetLatest.close - drawnLast.close) >= 0.005) {
+        ensureRafLoopRunning();
+      }
+    } catch {
+      // Ignore lightweight-charts setData race during unmount/timeframe swap
     }
   }, [candles, timeframe, showVolume, hasExchangeVolume, ensureRafLoopRunning, syncOhlcDom]);
 
@@ -635,7 +677,22 @@ export const XauUsdChart = memo(function XauUsdChart({
         });
       }
 
-      series.setData(ov.data.map((pt) => ({ time: pt.time as Time, value: pt.value })));
+      const validPoints = ov.data
+        .filter((pt) => Number.isFinite(pt.time) && Number.isFinite(pt.value))
+        .sort((a, b) => a.time - b.time);
+      const dedupedPoints: Array<{ time: Time; value: number }> = [];
+      for (const pt of validPoints) {
+        if (dedupedPoints.length > 0 && dedupedPoints[dedupedPoints.length - 1].time === (pt.time as Time)) {
+          dedupedPoints[dedupedPoints.length - 1].value = pt.value;
+        } else {
+          dedupedPoints.push({ time: pt.time as Time, value: pt.value });
+        }
+      }
+      try {
+        series.setData(dedupedPoints);
+      } catch {
+        // Ignore overlay ordering exception during chart swap
+      }
     }
   }, [overlays]);
 
@@ -718,25 +775,25 @@ export const XauUsdChart = memo(function XauUsdChart({
               <span>
                 O{' '}
                 <strong ref={readout ? undefined : ohlcOpenRef} className="text-zinc-200">
-                  {activeBar.open.toFixed(2)}
+                  {safeFixed(activeBar.open)}
                 </strong>
               </span>
               <span>
                 H{' '}
                 <strong ref={readout ? undefined : ohlcHighRef} className="text-zinc-200">
-                  {activeBar.high.toFixed(2)}
+                  {safeFixed(activeBar.high)}
                 </strong>
               </span>
               <span>
                 L{' '}
                 <strong ref={readout ? undefined : ohlcLowRef} className="text-zinc-200">
-                  {activeBar.low.toFixed(2)}
+                  {safeFixed(activeBar.low)}
                 </strong>
               </span>
               <span>
                 C{' '}
                 <strong ref={readout ? undefined : ohlcCloseRef} className="text-zinc-200">
-                  {activeBar.close.toFixed(2)}
+                  {safeFixed(activeBar.close)}
                 </strong>
               </span>
               {activeBar.time && <span className="text-zinc-500">{activeBar.time}</span>}

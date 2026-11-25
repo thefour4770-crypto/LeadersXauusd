@@ -68,14 +68,44 @@ function normalizeEntry(raw: SureSignalEntry): SureSignalEntry {
   };
 }
 
+function isValidSureSignalRecord(raw: unknown): raw is SureSignalEntry {
+  if (!raw || typeof raw !== 'object') return false;
+  const r = raw as Record<string, unknown>;
+  const tl = r.tradeLevels as Record<string, unknown> | undefined;
+  return (
+    typeof r.id === 'string' &&
+    r.id.length > 0 &&
+    typeof r.createdAt === 'string' &&
+    (r.direction === 'BUY' || r.direction === 'SELL') &&
+    typeof r.spotPrice === 'number' &&
+    Number.isFinite(r.spotPrice) &&
+    tl != null &&
+    typeof tl === 'object' &&
+    typeof tl.referencePrice === 'number' &&
+    Number.isFinite(tl.referencePrice) &&
+    typeof tl.stopLoss === 'number' &&
+    Number.isFinite(tl.stopLoss) &&
+    typeof tl.takeProfit1 === 'number' &&
+    Number.isFinite(tl.takeProfit1)
+  );
+}
+
+function safeTimestampMs(iso: string | undefined): number {
+  if (!iso) return 0;
+  const ms = new Date(iso).getTime();
+  return Number.isFinite(ms) ? ms : 0;
+}
+
 async function readAllUnlocked(): Promise<SureSignalEntry[]> {
   await ensureStoreFile();
   try {
     const raw = await fs.readFile(activeStoreFile, 'utf8');
     const parsed = JSON.parse(raw);
-    const items = Array.isArray(parsed) ? (parsed as SureSignalEntry[]).map(normalizeEntry) : [];
+    const items = Array.isArray(parsed)
+      ? parsed.filter(isValidSureSignalRecord).map(normalizeEntry)
+      : [];
     return items.sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      (a, b) => safeTimestampMs(b.createdAt) - safeTimestampMs(a.createdAt)
     );
   } catch {
     return [];
@@ -85,8 +115,13 @@ async function readAllUnlocked(): Promise<SureSignalEntry[]> {
 async function writeAllUnlocked(entries: SureSignalEntry[]): Promise<void> {
   await ensureStoreFile();
   const tmpFile = `${activeStoreFile}.${Date.now()}.${Math.random().toString(36).slice(2, 7)}.tmp`;
-  await fs.writeFile(tmpFile, JSON.stringify(entries, null, 2), 'utf8');
-  await fs.rename(tmpFile, activeStoreFile);
+  try {
+    await fs.writeFile(tmpFile, JSON.stringify(entries, null, 2), 'utf8');
+    await fs.rename(tmpFile, activeStoreFile);
+  } catch (err) {
+    await fs.unlink(tmpFile).catch(() => {});
+    throw err;
+  }
 }
 
 export async function listSureSignals(): Promise<SureSignalEntry[]> {
@@ -100,6 +135,9 @@ export async function listSureSignals(): Promise<SureSignalEntry[]> {
 export async function saveSureSignal(
   entry: SureSignalEntry
 ): Promise<{ saved: boolean; entry: SureSignalEntry }> {
+  if (!isValidSureSignalRecord(entry)) {
+    throw new Error('Refusing to save invalid SURE signal entry');
+  }
   return withStoreLock(async () => {
     const existing = await readAllUnlocked();
     const normalized = normalizeEntry(entry);

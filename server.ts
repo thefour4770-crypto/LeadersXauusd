@@ -4,6 +4,7 @@ import express from 'express';
 import path from 'node:path';
 import { createServer as createViteServer } from 'vite';
 import { ALL_TIMEFRAMES, type SelectedIndicatorConfig, type Timeframe } from './src/types/market.ts';
+import { INDICATOR_CATALOG } from './src/constants/indicators.ts';
 import { DataUnavailableError, NewsBlockedError, runFullAnalysis } from './server/analyzer.ts';
 import { computeChartOverlays, computeHourlySentiment24h, computeSupportResistance } from './server/indicators.ts';
 import { fetchCandles, fetchLiveXauUsdQuote, subscribeLiveQuotes } from './server/marketData.ts';
@@ -17,6 +18,7 @@ import { deleteReportById, getReportById, listReports } from './server/reportsSt
 import {
   getSureSignalStatus,
   handleSureSignalDeleted,
+  isSureStatusStaleForMinute,
   restoreActiveSureSignal,
   runSureSignalScan,
   startSureSignalBackgroundScanner,
@@ -53,9 +55,57 @@ function pruneJpgExportCache() {
   }
 }
 
+const VALID_ID_REGEX = /^[a-zA-Z0-9_-]{1,128}$/;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const VALID_INDICATOR_IDS = new Set(INDICATOR_CATALOG.map((c) => c.id));
+
+function sanitizeIndicatorsInput(raw: unknown): SelectedIndicatorConfig[] {
+  if (!Array.isArray(raw)) return [];
+  const out: SelectedIndicatorConfig[] = [];
+  for (const item of raw.slice(0, 32)) {
+    if (!item || typeof item !== 'object') continue;
+    const rec = item as Record<string, unknown>;
+    if (typeof rec.id !== 'string' || !VALID_INDICATOR_IDS.has(rec.id as SelectedIndicatorConfig['id'])) {
+      continue;
+    }
+    const cleanParams: Record<string, number> = {};
+    if (rec.params && typeof rec.params === 'object') {
+      for (const [k, v] of Object.entries(rec.params as Record<string, unknown>)) {
+        if (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1000) {
+          cleanParams[k] = v;
+        }
+      }
+    }
+    out.push({
+      id: rec.id as SelectedIndicatorConfig['id'],
+      enabled: Boolean(rec.enabled),
+      params: cleanParams,
+    });
+  }
+  return out;
+}
+
 async function startServer() {
   const app = express();
-  app.use(express.json({ limit: '1mb' }));
+  const jsonParser1Mb = express.json({ limit: '1mb' });
+  app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    if (req.path === '/api/export/jpg') {
+      next();
+      return;
+    }
+    jsonParser1Mb(req, res, next);
+  });
+
+  app.use('/api', (req, res, next) => {
+    if (req.path !== '/market/stream') {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
+    next();
+  });
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, service: 'LEADERS XAUUSD', time: new Date().toISOString() });
@@ -201,9 +251,7 @@ async function startServer() {
 
   app.post('/api/market/overlays', async (req, res) => {
     const tf = String(req.body?.timeframe ?? '15m') as Timeframe;
-    const indicators = Array.isArray(req.body?.indicators)
-      ? (req.body.indicators as SelectedIndicatorConfig[])
-      : [];
+    const indicators = sanitizeIndicatorsInput(req.body?.indicators);
 
     if (!ALL_TIMEFRAMES.includes(tf)) {
       res.status(400).json({ error: `Unsupported timeframe: ${tf}` });
@@ -223,18 +271,18 @@ async function startServer() {
   });
 
   app.post('/api/analyze', async (req, res) => {
-    const timeframes = Array.isArray(req.body?.timeframes) ? (req.body.timeframes as Timeframe[]) : [];
-    const indicators = Array.isArray(req.body?.indicators)
-      ? (req.body.indicators as SelectedIndicatorConfig[])
-      : [];
+    const rawTimeframes = Array.isArray(req.body?.timeframes) ? req.body.timeframes : [];
+    const indicators = sanitizeIndicatorsInput(req.body?.indicators);
 
-    const validTimeframes = timeframes.filter((t) => ALL_TIMEFRAMES.includes(t));
+    const validTimeframes = rawTimeframes.filter(
+      (t: unknown): t is Timeframe => typeof t === 'string' && ALL_TIMEFRAMES.includes(t as Timeframe)
+    );
     if (validTimeframes.length === 0) {
       res.status(400).json({ error: 'Select at least one valid timeframe before running analysis.' });
       return;
     }
     if (indicators.filter((i) => i.enabled).length === 0) {
-      res.status(400).json({ error: 'Enable at least one technical indicator before running analysis.' });
+      res.status(400).json({ error: 'Enable at least one valid technical indicator before running analysis.' });
       return;
     }
 
@@ -271,6 +319,10 @@ async function startServer() {
   });
 
   app.get('/api/reports/:id', async (req, res) => {
+    if (!VALID_ID_REGEX.test(req.params.id)) {
+      res.status(400).json({ error: 'Invalid report identifier' });
+      return;
+    }
     try {
       const report = await getReportById(req.params.id);
       if (!report) {
@@ -284,6 +336,10 @@ async function startServer() {
   });
 
   app.delete('/api/reports/:id', async (req, res) => {
+    if (!VALID_ID_REGEX.test(req.params.id)) {
+      res.status(400).json({ error: 'Invalid report identifier' });
+      return;
+    }
     try {
       const deleted = await deleteReportById(req.params.id);
       if (!deleted) {
@@ -296,10 +352,11 @@ async function startServer() {
     }
   });
 
-  app.get('/api/sure-signals', async (_req, res) => {
+  app.get('/api/sure-signals', async (req, res) => {
     try {
+      const forceRefresh = req.query.refresh === '1' || req.query.refresh === 'true';
       let status = await getSureSignalStatus();
-      if (!status.lastScannedAt && !status.tradeLocked) {
+      if (!status.tradeLocked && (forceRefresh || isSureStatusStaleForMinute(status))) {
         status = await runSureSignalScan();
       }
       res.json({ status: 'OK', sureStatus: status });
@@ -323,6 +380,10 @@ async function startServer() {
   });
 
   app.delete('/api/sure-signals/:id', async (req, res) => {
+    if (!VALID_ID_REGEX.test(req.params.id)) {
+      res.status(400).json({ error: 'Invalid sure signal identifier' });
+      return;
+    }
     try {
       const existing = await getSureSignalStatus();
       const target = existing.history.find((item) => item.id === req.params.id);
@@ -431,6 +492,10 @@ async function startServer() {
   });
 
   app.get('/api/export/jpg/:token', (req, res) => {
+    if (!UUID_REGEX.test(req.params.token)) {
+      res.status(400).send('Invalid export token');
+      return;
+    }
     pruneJpgExportCache();
     const entry = jpgExportCache.get(req.params.token);
     if (!entry) {
@@ -447,6 +512,10 @@ async function startServer() {
 
   const isProd = process.env.NODE_ENV === 'production';
   if (!isProd) {
+    // Prevent Vite SPA index.html fallback when browsers check /sw.js in dev mode
+    app.get('/sw.js', (_req, res) => {
+      res.status(404).type('application/javascript').send('// Dev mode: Service worker inactive');
+    });
     const vite = await createViteServer({
       server: { middlewareMode: true, hmr: false, ws: false },
       appType: 'spa',
@@ -487,11 +556,18 @@ async function startServer() {
             filePath.endsWith('registerSW.js')
           ) {
             res.setHeader('Cache-Control', 'no-cache');
+          } else if (filePath.endsWith('index.html')) {
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+            res.setHeader('Pragma', 'no-cache');
+            res.setHeader('Expires', '0');
           }
         },
       })
     );
     app.get('*', (_req, res) => {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
       res.sendFile(path.join(distDir, 'index.html'));
     });
   }
@@ -503,8 +579,23 @@ async function startServer() {
       res: express.Response,
       _next: express.NextFunction
     ) => {
-      console.error('Unhandled Express error:', err);
       if (res.headersSent) return;
+      const errObj = err as { type?: string; status?: number; message?: string };
+      if (errObj?.type === 'entity.too.large' || errObj?.status === 413) {
+        res.status(413).json({
+          status: 'PAYLOAD TOO LARGE',
+          error: 'Request payload exceeds allowed size limit.',
+        });
+        return;
+      }
+      if (err instanceof SyntaxError && (errObj?.status === 400 || errObj?.type === 'entity.parse.failed')) {
+        res.status(400).json({
+          status: 'BAD JSON',
+          error: 'Malformed JSON request body.',
+        });
+        return;
+      }
+      console.error('Unhandled Express error:', err);
       res.status(500).json({
         status: 'SERVER ERROR',
         error: err instanceof Error ? err.message : 'Unexpected server error',

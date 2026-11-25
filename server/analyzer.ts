@@ -16,6 +16,7 @@ import {
   fetchLiveXauUsdQuote,
   fetchPureFuturesCandles,
   getPureSpotCandles,
+  getRecordedSpot1mCandlesSince,
 } from './marketData.ts';
 import { evaluateCurrentNewsProtection } from './newsCalendar.ts';
 import { saveReport } from './reportsStore.ts';
@@ -98,13 +99,14 @@ export function isFreshSpotDataset(
 }
 
 export async function fetchStrategyDatasets(): Promise<StrategyDatasetsInput> {
-  const [spot1m, spot5m, spot15m] = await Promise.all([
+  const nowSec = Math.floor(Date.now() / 1000);
+  const [spot1m, spot5m, spot15m, spot1mHistory] = await Promise.all([
     getPureSpotCandles('1m'),
     getPureSpotCandles('5m'),
     getPureSpotCandles('15m'),
+    getRecordedSpot1mCandlesSince(nowSec - 7_200),
   ]);
 
-  const nowSec = Math.floor(Date.now() / 1000);
   const max1mAge = Math.max(240, TIMEFRAME_SECONDS['1m'] * 3);
   const max5mAge = TIMEFRAME_SECONDS['5m'] * 3;
   const max15mAge = TIMEFRAME_SECONDS['15m'] * 3;
@@ -113,28 +115,43 @@ export async function fetchStrategyDatasets(): Promise<StrategyDatasetsInput> {
   const hasFresh5mSpot = isFreshSpotDataset(spot5m, '5m', max5mAge, nowSec, 60);
   const hasFresh15mSpot = isFreshSpotDataset(spot15m, '15m', max15mAge, nowSec, 30);
 
-  const [f1H, f15m, f5m, f1m] = await Promise.all([
-    fetchPureFuturesCandles('1H'),
-    fetchPureFuturesCandles('15m').catch((err) => {
-      if (hasFresh15mSpot && spot15m) return spot15m;
+  const isFuturesWindowFresh = (ds: CandleDataset, tf: '1m' | '5m' | '15m'): boolean => {
+    if (!ds || ds.candles.length < 30) return false;
+    const lastBar = ds.candles[ds.candles.length - 1];
+    if (!lastBar) return false;
+    const maxAllowedLag = tf === '1m' ? 900 : Math.max(1_500, TIMEFRAME_SECONDS[tf] * 2 + 1_200);
+    return nowSec - lastBar.time <= maxAllowedLag;
+  };
+
+  // Fetch 1m first so any detected COMEX GC=F contract rollover anchor is seeded before 1H/15m/5m load.
+  const f1m = await fetchPureFuturesCandles('1m')
+    .then((ds) => (hasFresh1mSpot && spot1m && !isFuturesWindowFresh(ds, '1m') ? spot1m : ds))
+    .catch((err) => {
+      if (isFreshSpotDataset(spot1m, '1m', max1mAge, nowSec, 30) && spot1m) {
+        return spot1m;
+      }
       throw err;
-    }),
-    hasFresh5mSpot && spot5m
-      ? Promise.resolve(spot5m)
-      : fetchPureFuturesCandles('5m').catch((err) => {
-          if (isFreshSpotDataset(spot5m, '5m', max5mAge, nowSec, 30) && spot5m) {
-            return spot5m;
-          }
-          throw err;
-        }),
-    hasFresh1mSpot && spot1m
-      ? Promise.resolve(spot1m)
-      : fetchPureFuturesCandles('1m').catch((err) => {
-          if (isFreshSpotDataset(spot1m, '1m', max1mAge, nowSec, 30) && spot1m) {
-            return spot1m;
-          }
-          throw err;
-        }),
+    });
+
+  // Use identical global Yahoo Finance GC=F candles primarily across all 4 timeframes so
+  // Chrome and installed/shared PWA containers never diverge due to local Spot polling uptime.
+  // Fall back to contiguous Spot BBO candles only if GC=F is unavailable or stalled (e.g. COMEX break).
+  const [f1H, f15m, f5m] = await Promise.all([
+    fetchPureFuturesCandles('1H'),
+    fetchPureFuturesCandles('15m')
+      .then((ds) => (hasFresh15mSpot && spot15m && !isFuturesWindowFresh(ds, '15m') ? spot15m : ds))
+      .catch((err) => {
+        if (hasFresh15mSpot && spot15m) return spot15m;
+        throw err;
+      }),
+    fetchPureFuturesCandles('5m')
+      .then((ds) => (hasFresh5mSpot && spot5m && !isFuturesWindowFresh(ds, '5m') ? spot5m : ds))
+      .catch((err) => {
+        if (isFreshSpotDataset(spot5m, '5m', max5mAge, nowSec, 30) && spot5m) {
+          return spot5m;
+        }
+        throw err;
+      }),
   ]);
 
   return {
@@ -142,6 +159,7 @@ export async function fetchStrategyDatasets(): Promise<StrategyDatasetsInput> {
     tf15m: f15m,
     tf5m: f5m,
     tf1m: f1m,
+    spot1mHistory,
   };
 }
 
@@ -328,9 +346,11 @@ export async function runFullAnalysis(
     new Set([...MANDATORY_STRATEGY_TIMEFRAMES, ...rawTimeframes])
   ).sort((a, b) => TIMEFRAME_ORDER[a] - TIMEFRAME_ORDER[b]);
 
-  const enabledIndicators = rawIndicators.filter((i) => i.enabled);
+  const enabledIndicators = rawIndicators.filter(
+    (i) => i && i.enabled && INDICATOR_CATALOG.some((d) => d.id === i.id)
+  );
   if (enabledIndicators.length === 0) {
-    throw new Error('At least one technical indicator must be enabled for analysis.');
+    throw new Error('At least one valid technical indicator must be enabled for analysis.');
   }
 
   const [quote, strategyDatasets, displayDatasets] = await Promise.all([
@@ -488,12 +508,12 @@ export async function runFullAnalysis(
     signalConfidence,
     selectedTimeframes: uniqueTimeframes,
     selectedIndicators: enabledIndicators.map((cfg) => {
-      const def = INDICATOR_CATALOG.find((d) => d.id === cfg.id)!;
+      const def = INDICATOR_CATALOG.find((d) => d.id === cfg.id);
       return {
         id: cfg.id,
-        name: def.name,
-        category: def.category,
-        params: cfg.params,
+        name: def?.name ?? cfg.id,
+        category: def?.category ?? 'TREND',
+        params: cfg.params ?? {},
       };
     }),
     timeframeAnalyses,

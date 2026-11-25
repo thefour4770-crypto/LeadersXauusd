@@ -532,6 +532,19 @@ export function mergeAndDeduplicateEvents(
   return merged.sort((a, b) => a.timestampMs - b.timestampMs || a.title.localeCompare(b.title));
 }
 
+function isValidDiskNewsEvent(item: unknown): item is EconomicNewsEvent {
+  if (!item || typeof item !== 'object') return false;
+  const e = item as Record<string, unknown>;
+  return (
+    typeof e.id === 'string' &&
+    typeof e.title === 'string' &&
+    e.title.length > 0 &&
+    typeof e.timestampMs === 'number' &&
+    Number.isFinite(e.timestampMs) &&
+    typeof e.istDateKey === 'string'
+  );
+}
+
 async function ensureDiskCacheLoaded(): Promise<void> {
   if (state.loadedFromDisk) return;
   state.loadedFromDisk = true;
@@ -539,15 +552,30 @@ async function ensureDiskCacheLoaded(): Promise<void> {
     const raw = await fs.readFile(NEWS_CACHE_FILE, 'utf8');
     const parsed = JSON.parse(raw) as DiskNewsCache;
     if (parsed && typeof parsed === 'object') {
-      state.lastTvSuccessMs = parsed.lastTvSuccessMs ?? null;
-      state.lastFfSuccessMs = parsed.lastFfSuccessMs ?? null;
-      state.ffBackoffUntilMs = parsed.ffBackoffUntilMs ?? null;
+      state.lastTvSuccessMs =
+        typeof parsed.lastTvSuccessMs === 'number' && Number.isFinite(parsed.lastTvSuccessMs)
+          ? parsed.lastTvSuccessMs
+          : null;
+      state.lastFfSuccessMs =
+        typeof parsed.lastFfSuccessMs === 'number' && Number.isFinite(parsed.lastFfSuccessMs)
+          ? parsed.lastFfSuccessMs
+          : null;
+      state.ffBackoffUntilMs =
+        typeof parsed.ffBackoffUntilMs === 'number' && Number.isFinite(parsed.ffBackoffUntilMs)
+          ? parsed.ffBackoffUntilMs
+          : null;
       if (Array.isArray(parsed.tvEvents)) {
-        state.tvEvents = parsed.tvEvents.filter((e) => isForexFactoryUsdRedTitle(e.title));
+        state.tvEvents = parsed.tvEvents.filter(
+          (e) => isValidDiskNewsEvent(e) && isForexFactoryUsdRedTitle(e.title)
+        );
       }
-      if (Array.isArray(parsed.ffEvents)) state.ffEvents = parsed.ffEvents;
+      if (Array.isArray(parsed.ffEvents)) {
+        state.ffEvents = parsed.ffEvents.filter(isValidDiskNewsEvent);
+      }
       if (Array.isArray(parsed.ffCoveredDateKeys)) {
-        state.ffCoveredDateKeys = parsed.ffCoveredDateKeys;
+        state.ffCoveredDateKeys = parsed.ffCoveredDateKeys.filter(
+          (k): k is string => typeof k === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(k)
+        );
       }
     }
   } catch {
@@ -556,6 +584,7 @@ async function ensureDiskCacheLoaded(): Promise<void> {
 }
 
 async function persistDiskCache(): Promise<void> {
+  const tmp = `${NEWS_CACHE_FILE}.${Date.now()}.${Math.random().toString(36).slice(2, 7)}.tmp`;
   try {
     await fs.mkdir(DATA_DIR, { recursive: true });
     const payload: DiskNewsCache = {
@@ -566,11 +595,10 @@ async function persistDiskCache(): Promise<void> {
       ffEvents: state.ffEvents,
       ffCoveredDateKeys: state.ffCoveredDateKeys,
     };
-    const tmp = `${NEWS_CACHE_FILE}.${Date.now()}.tmp`;
     await fs.writeFile(tmp, JSON.stringify(payload), 'utf8');
     await fs.rename(tmp, NEWS_CACHE_FILE);
   } catch {
-    // Non-fatal persistence error
+    await fs.unlink(tmp).catch(() => {});
   }
 }
 

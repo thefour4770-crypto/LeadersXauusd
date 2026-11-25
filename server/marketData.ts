@@ -49,6 +49,12 @@ let inFlightQuotePromise: Promise<MarketQuote> | null = null;
 let lastEmittedQuoteKey = '';
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 let yahooPersistTimer: ReturnType<typeof setTimeout> | null = null;
+export interface FuturesRolloverAnchor {
+  timeSec: number;
+  shiftUsd: number;
+}
+
+const detectedRolloverAnchors = new Map<number, number>(); // rolloverTimeSec -> shiftUsd
 let spotStoreLoadPromise: Promise<void> | null = null;
 let yahooCacheLoadPromise: Promise<void> | null = null;
 let yahooRateLimitedUntilMs = 0;
@@ -56,6 +62,219 @@ let yahooHostIdx = 0;
 const IS_TEST_ENV = Boolean(
   process.env.NODE_TEST_CONTEXT || process.argv.some((a) => a.includes('--test'))
 );
+
+function roundPrice2(val: number): number {
+  return Number(val.toFixed(2));
+}
+
+function medianNumber(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function isValidCandleRecord(item: unknown): item is Candle {
+  if (!item || typeof item !== 'object') return false;
+  const c = item as Record<string, unknown>;
+  return (
+    typeof c.time === 'number' &&
+    typeof c.open === 'number' &&
+    typeof c.high === 'number' &&
+    typeof c.low === 'number' &&
+    typeof c.close === 'number' &&
+    Number.isFinite(c.time) &&
+    Number.isFinite(c.open) &&
+    Number.isFinite(c.high) &&
+    Number.isFinite(c.low) &&
+    Number.isFinite(c.close) &&
+    c.time > 0 &&
+    c.open > 0 &&
+    c.low > 0 &&
+    c.high >= Math.max(c.open, c.close) &&
+    c.low <= Math.min(c.open, c.close)
+  );
+}
+
+/**
+ * Stitches continuous futures (e.g. COMEX GC=F) front-month contract rollovers via back-adjustment
+ * so artificial contract-carry jumps & transition-bar spikes do not corrupt EMAs, ATR, Trend, or Volume.
+ * Leaves normal volatility, news spikes (where Spot moves alongside Futures), and weekend gaps untouched.
+ */
+export function stitchFuturesContractRollovers(
+  candles: Candle[],
+  timeframe: Timeframe,
+  options?: {
+    externalAnchors?: FuturesRolloverAnchor[];
+    spot1mCandles?: Candle[];
+    liveSpotQuoteMid?: number;
+  }
+): { candles: Candle[]; rollovers: FuturesRolloverAnchor[] } {
+  if (!Array.isArray(candles) || candles.length < 20) {
+    return { candles: Array.isArray(candles) ? candles.map((c) => ({ ...c })) : [], rollovers: [] };
+  }
+
+  const tfSec = TIMEFRAME_SECONDS[timeframe];
+  const isIntraday = tfSec < 86_400;
+  const out = candles.map((c) => ({ ...c }));
+  const rollovers: FuturesRolloverAnchor[] = [];
+
+  const externalAnchors = options?.externalAnchors ?? [];
+  const spot1m = options?.spot1mCandles ?? [];
+
+  const findSpotCloseNear = (targetSec: number, maxDiffSec: number): number | null => {
+    if (spot1m.length === 0) return null;
+    let best: Candle | null = null;
+    let bestDiff = maxDiffSec;
+    for (let s = spot1m.length - 1; s >= 0; s--) {
+      const bar = spot1m[s];
+      const diff = Math.abs(bar.time - targetSec);
+      if (diff <= bestDiff) {
+        bestDiff = diff;
+        best = bar;
+      }
+      if (bar.time < targetSec - maxDiffSec) break;
+    }
+    return best ? best.close : null;
+  };
+
+  for (let i = 15; i < out.length; i++) {
+    const prev = out[i - 1];
+    const cur = out[i];
+    const dt = cur.time - prev.time;
+    const isWeekendOrHoliday = isIntraday && dt >= 6 * 3_600;
+    if (isWeekendOrHoliday) continue;
+
+    const winStart = Math.max(0, i - 24);
+    const win = out.slice(winStart, i);
+    const trList: number[] = [];
+    const volList: number[] = [];
+    for (let w = 0; w < win.length; w++) {
+      const b = win[w];
+      const tr =
+        w === 0
+          ? b.high - b.low
+          : Math.max(b.high - b.low, Math.abs(b.high - win[w - 1].close), Math.abs(b.low - win[w - 1].close));
+      if (Number.isFinite(tr) && tr >= 0) trList.push(tr);
+      if (Number.isFinite(b.volume) && b.volume > 0) volList.push(b.volume);
+    }
+    const medTR = Math.max(0.5, medianNumber(trList));
+    const medVol = volList.length > 0 ? medianNumber(volList) : 0;
+
+    const gap = cur.open - prev.close;
+    const body = cur.close - cur.open;
+    const absGap = Math.abs(gap);
+    const absBody = Math.abs(body);
+    const volRatio = medVol > 0 ? cur.volume / medVol : 0;
+
+    const postBars = out.slice(i + 1, Math.min(out.length, i + 4));
+    const medPostClose = postBars.length > 0 ? medianNumber(postBars.map((b) => b.close)) : cur.close;
+
+    const matchedAnchor = externalAnchors.find(
+      (a) => a.timeSec >= cur.time && a.timeSec < cur.time + tfSec && Math.abs(a.shiftUsd) >= 8
+    );
+
+    let detectedMode: 'STEP_GAP' | 'HYBRID' | null = null;
+    let shiftUsd = 0;
+
+    if (matchedAnchor && (absGap >= 8 || absBody >= 8 || (medVol > 0 && cur.volume >= medVol * 4))) {
+      shiftUsd = matchedAnchor.shiftUsd;
+      // Anchor at bar start means clean step gap; mid-bar anchor means hybrid transition bar
+      detectedMode = matchedAnchor.timeSec === cur.time && absGap >= Math.abs(shiftUsd) * 0.5 ? 'STEP_GAP' : 'HYBRID';
+    } else if (
+      absGap >= Math.max(10, medTR * 3.8) &&
+      (medVol === 0 || cur.volume >= Math.max(800, medVol * 6)) &&
+      (postBars.length > 0
+        ? Math.abs(medPostClose - cur.open) <= absGap * 0.55 &&
+          Math.abs(medPostClose - prev.close) >= absGap * 0.55
+        : typeof options?.liveSpotQuoteMid === 'number' &&
+          Number.isFinite(options.liveSpotQuoteMid) &&
+          cur.volume >= Math.max(2000, medVol * 15) &&
+          Math.abs(cur.open - options.liveSpotQuoteMid) >= Math.max(12, Math.abs(prev.close - options.liveSpotQuoteMid) + 10))
+    ) {
+      detectedMode = 'STEP_GAP';
+      shiftUsd = gap;
+    } else if (
+      postBars.length > 0 &&
+      absBody >= Math.max(15, medTR * 3.5) &&
+      medVol > 0 &&
+      cur.volume >= Math.max(4000, medVol * 20) &&
+      Math.abs(medPostClose - cur.close) <= absBody * 0.45 &&
+      Math.abs(medPostClose - cur.open) >= absBody * 0.55
+    ) {
+      detectedMode = 'HYBRID';
+      shiftUsd = body;
+    } else if (
+      spot1m.length > 0 &&
+      (absGap >= 12 || (absBody >= 15 && medVol > 0 && cur.volume >= Math.max(2000, medVol * 8)))
+    ) {
+      // Cross-check against Spot 1m history: real news moves both Spot & Futures together;
+      // contract rollovers shift Futures while Spot stays flat -> Spot/Futures basis jumps sharply.
+      const spotBefore = findSpotCloseNear(prev.time + tfSec - 60, Math.max(900, tfSec));
+      const spotAfter =
+        i < out.length - 1
+          ? findSpotCloseNear(out[i + 1].time, Math.max(900, tfSec))
+          : typeof options?.liveSpotQuoteMid === 'number' && options.liveSpotQuoteMid > 0
+          ? options.liveSpotQuoteMid
+          : findSpotCloseNear(cur.time + tfSec - 60, Math.max(900, tfSec));
+
+      if (spotBefore != null && spotAfter != null) {
+        const basisBefore = prev.close - spotBefore;
+        const basisAfter = cur.close - spotAfter;
+        const basisJump = basisAfter - basisBefore;
+        const moveRef = absGap >= 12 ? gap : body;
+        if (Math.abs(basisJump) >= 12 && Math.sign(basisJump) === Math.sign(moveRef)) {
+          detectedMode = absGap >= Math.abs(basisJump) * 0.55 ? 'STEP_GAP' : 'HYBRID';
+          shiftUsd = basisJump;
+        }
+      }
+    }
+
+    if (detectedMode && Number.isFinite(shiftUsd) && Math.abs(shiftUsd) >= 8) {
+      const cleanShift = roundPrice2(shiftUsd);
+      for (let j = 0; j < i; j++) {
+        out[j] = {
+          ...out[j],
+          open: roundPrice2(out[j].open + cleanShift),
+          high: roundPrice2(out[j].high + cleanShift),
+          low: roundPrice2(out[j].low + cleanShift),
+          close: roundPrice2(out[j].close + cleanShift),
+        };
+      }
+
+      if (detectedMode === 'HYBRID') {
+        const nextOpen = roundPrice2(cur.open + cleanShift);
+        const nextClose = roundPrice2(cur.close);
+        let nextHigh = cur.high;
+        let nextLow = cur.low;
+        if (cleanShift > 0) {
+          nextLow = roundPrice2(Math.min(nextOpen, nextClose, cur.low + cleanShift));
+          nextHigh = roundPrice2(Math.max(nextOpen, nextClose, cur.high));
+        } else {
+          nextHigh = roundPrice2(Math.max(nextOpen, nextClose, cur.high + cleanShift));
+          nextLow = roundPrice2(Math.min(nextOpen, nextClose, cur.low));
+        }
+        out[i] = {
+          ...cur,
+          open: nextOpen,
+          high: nextHigh,
+          low: nextLow,
+          close: nextClose,
+          volume: medVol > 0 && volRatio >= 3 ? Math.round(medVol) : cur.volume,
+        };
+      } else if (medVol > 0 && volRatio >= 3) {
+        out[i] = {
+          ...cur,
+          volume: Math.round(medVol),
+        };
+      }
+
+      rollovers.push({ timeSec: cur.time, shiftUsd: cleanShift });
+    }
+  }
+
+  return { candles: out, rollovers };
+}
 
 async function ensureSpotStoreLoaded(): Promise<void> {
   if (spotStoreLoadPromise) return spotStoreLoadPromise;
@@ -107,20 +326,54 @@ async function ensureYahooCacheLoaded(): Promise<void> {
   if (yahooCacheLoadPromise) return yahooCacheLoadPromise;
   yahooCacheLoadPromise = (async () => {
     try {
+      await ensureSpotStoreLoaded();
       const raw = await fs.readFile(YAHOO_CANDLE_CACHE_FILE, 'utf8');
       const parsed = JSON.parse(raw) as Record<string, CacheEntry<CandleDataset>>;
       if (!parsed || typeof parsed !== 'object') return;
-      for (const [tf, entry] of Object.entries(parsed)) {
+      const orderedKeys = Object.keys(parsed).sort((a, b) => (a === '1m' ? -1 : b === '1m' ? 1 : 0));
+      const spot1m = Array.from(liveSpot1mCandles.values()).sort((a, b) => a.time - b.time);
+
+      for (const tf of orderedKeys) {
+        const entry = parsed[tf];
         if (
           tf in YAHOO_TIMEFRAME_MAP &&
           entry &&
           typeof entry.fetchedAt === 'number' &&
+          Number.isFinite(entry.fetchedAt) &&
           entry.data &&
           Array.isArray(entry.data.candles) &&
-          entry.data.candles.length >= 30 &&
           !rawYahooCache.has(tf as Timeframe)
         ) {
-          rawYahooCache.set(tf as Timeframe, entry);
+          const validCandles = entry.data.candles
+            .filter(isValidCandleRecord)
+            .sort((a, b) => a.time - b.time);
+          if (validCandles.length < 30) continue;
+
+          const anchors = Array.from(detectedRolloverAnchors.entries()).map(([timeSec, shiftUsd]) => ({
+            timeSec,
+            shiftUsd,
+          }));
+          const stitched =
+            typeof entry.data.candleSource === 'string' && entry.data.candleSource.includes('GC=F')
+              ? stitchFuturesContractRollovers(validCandles, tf as Timeframe, {
+                  externalAnchors: anchors,
+                  spot1mCandles: spot1m,
+                })
+              : { candles: validCandles, rollovers: [] };
+
+          if (tf === '1m') {
+            for (const r of stitched.rollovers) {
+              detectedRolloverAnchors.set(r.timeSec, r.shiftUsd);
+            }
+          }
+
+          rawYahooCache.set(tf as Timeframe, {
+            fetchedAt: entry.fetchedAt,
+            data: {
+              ...entry.data,
+              candles: stitched.candles,
+            },
+          });
         }
       }
     } catch {
@@ -134,6 +387,7 @@ function schedulePersistYahooCache(): void {
   if (IS_TEST_ENV || yahooPersistTimer !== null) return;
   yahooPersistTimer = setTimeout(async () => {
     yahooPersistTimer = null;
+    const tmp = `${YAHOO_CANDLE_CACHE_FILE}.${Date.now()}.${Math.random().toString(36).slice(2, 7)}.tmp`;
     try {
       await fs.mkdir(DATA_DIR, { recursive: true });
       const payload: Record<string, CacheEntry<CandleDataset>> = {};
@@ -146,11 +400,10 @@ function schedulePersistYahooCache(): void {
           },
         };
       }
-      const tmp = `${YAHOO_CANDLE_CACHE_FILE}.${Date.now()}.tmp`;
       await fs.writeFile(tmp, JSON.stringify(payload), 'utf8');
       await fs.rename(tmp, YAHOO_CANDLE_CACHE_FILE);
     } catch {
-      // Non-fatal disk cache write error
+      await fs.unlink(tmp).catch(() => {});
     }
   }, 5_000);
   yahooPersistTimer.unref?.();
@@ -160,17 +413,17 @@ function schedulePersistSpotCandles(): void {
   if (IS_TEST_ENV || persistTimer !== null) return;
   persistTimer = setTimeout(async () => {
     persistTimer = null;
+    const tmp = `${LIVE_SPOT_1M_FILE}.${Date.now()}.${Math.random().toString(36).slice(2, 7)}.tmp`;
     try {
       await ensureSpotStoreLoaded();
       await fs.mkdir(DATA_DIR, { recursive: true });
       const sorted = Array.from(liveSpot1mCandles.values())
         .sort((a, b) => a.time - b.time)
         .slice(-MAX_LIVE_SPOT_BARS);
-      const tmp = `${LIVE_SPOT_1M_FILE}.${Date.now()}.tmp`;
       await fs.writeFile(tmp, JSON.stringify(sorted), 'utf8');
       await fs.rename(tmp, LIVE_SPOT_1M_FILE);
     } catch {
-      // Non-fatal persistence error
+      await fs.unlink(tmp).catch(() => {});
     }
   }, 4_000);
   persistTimer.unref?.();
@@ -297,10 +550,10 @@ async function fetchPreviousCloseCached(): Promise<number | undefined> {
     return prevCloseCache.current?.data;
   }
 
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5_000);
   try {
     const host = YAHOO_CHART_HOSTS[yahooHostIdx % YAHOO_CHART_HOSTS.length];
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5_000);
     const res = await fetch(
       `${host}/v8/finance/chart/GC=F?interval=1d&range=5d`,
       {
@@ -311,7 +564,6 @@ async function fetchPreviousCloseCached(): Promise<number | undefined> {
         signal: controller.signal,
       }
     );
-    clearTimeout(timer);
     if (res.status === 429) {
       yahooRateLimitedUntilMs = Date.now() + YAHOO_RATE_LIMIT_DEFAULT_MS;
       yahooHostIdx = (yahooHostIdx + 1) % YAHOO_CHART_HOSTS.length;
@@ -329,6 +581,8 @@ async function fetchPreviousCloseCached(): Promise<number | undefined> {
     }
   } catch {
     // Ignore optional previous-close enrichment errors
+  } finally {
+    clearTimeout(timer);
   }
   return prevCloseCache.current?.data;
 }
@@ -349,10 +603,9 @@ export async function fetchLiveXauUsdQuote(options?: { internalCollector?: boole
   }
 
   inFlightQuotePromise = (async (): Promise<MarketQuote> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4_500);
     try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 4_500);
-
       const [sqRes, prevClose] = await Promise.all([
         fetch('https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/XAU/USD', {
           headers: { 'User-Agent': 'LEADERS-XAUUSD/1.0' },
@@ -360,7 +613,6 @@ export async function fetchLiveXauUsdQuote(options?: { internalCollector?: boole
         }),
         fetchPreviousCloseCached(),
       ]);
-      clearTimeout(timer);
 
       if (!sqRes.ok) {
         throw new Error(`Spot quote HTTP ${sqRes.status}`);
@@ -443,6 +695,7 @@ export async function fetchLiveXauUsdQuote(options?: { internalCollector?: boole
         source: 'Swissquote Spot XAU/USD BBO',
       };
     } finally {
+      clearTimeout(timer);
       inFlightQuotePromise = null;
     }
   })();
@@ -588,7 +841,13 @@ async function fetchYahooCandlesBase(timeframe: Timeframe): Promise<CandleDatase
 
   const now = Date.now();
   const cached = rawYahooCache.get(timeframe);
-  if (cached && now - cached.fetchedAt < cfg.cacheTtlMs) {
+  const crossesCandleBoundary =
+    (timeframe === '1m' || timeframe === '5m') &&
+    cached != null &&
+    Math.floor(cached.fetchedAt / (cfg.seconds * 1000)) < Math.floor(now / (cfg.seconds * 1000)) &&
+    now % (cfg.seconds * 1000) >= 2_500 &&
+    now - cached.fetchedAt >= 8_000;
+  if (cached && !crossesCandleBoundary && now - cached.fetchedAt < cfg.cacheTtlMs) {
     return refreshDatasetFreshness(cached.data, now);
   }
 
@@ -673,19 +932,42 @@ async function fetchYahooCandlesBase(timeframe: Timeframe): Promise<CandleDatase
       }
     }
 
-    const candles = Array.from(byTime.values()).sort((a, b) => a.time - b.time);
+    const rawCandles = Array.from(byTime.values()).sort((a, b) => a.time - b.time);
     // Drop Yahoo Finance's partial trailing regularMarketTime 0-volume snapshot bar
     // so closed-bar volume/body indicators aren't corrupted by a 0-volume snapshot stub.
-    if (isIntraday && candles.length > 35) {
-      const tailLast = candles[candles.length - 1];
-      const prevThreeHaveVol = candles.slice(-4, -1).every((c) => c.volume > 0);
+    if (isIntraday && rawCandles.length > 35) {
+      const tailLast = rawCandles[rawCandles.length - 1];
+      const prevThreeHaveVol = rawCandles.slice(-4, -1).every((c) => c.volume > 0);
       if (tailLast.volume === 0 && prevThreeHaveVol) {
-        candles.pop();
+        rawCandles.pop();
       }
     }
-    if (candles.length < 30) {
-      throw new Error(`Insufficient valid candles (${candles.length}) for ${timeframe}`);
+    if (rawCandles.length < 30) {
+      throw new Error(`Insufficient valid candles (${rawCandles.length}) for ${timeframe}`);
     }
+
+    await ensureSpotStoreLoaded();
+    const spot1m = Array.from(liveSpot1mCandles.values()).sort((a, b) => a.time - b.time);
+    const liveSpotMid =
+      quoteCache.current &&
+      quoteCache.current.data.freshness === 'LIVE' &&
+      quoteCache.current.data.mid > 0
+        ? quoteCache.current.data.mid
+        : undefined;
+    const externalAnchors = Array.from(detectedRolloverAnchors.entries()).map(
+      ([timeSec, shiftUsd]) => ({ timeSec, shiftUsd })
+    );
+    const stitched = stitchFuturesContractRollovers(rawCandles, timeframe, {
+      externalAnchors,
+      spot1mCandles: spot1m,
+      liveSpotQuoteMid: liveSpotMid,
+    });
+    if (timeframe === '1m') {
+      for (const r of stitched.rollovers) {
+        detectedRolloverAnchors.set(r.timeSec, r.shiftUsd);
+      }
+    }
+    const candles = stitched.candles;
 
     const regularMarketTimeMs = (result.meta?.regularMarketTime ?? candles[candles.length - 1].time) * 1000;
     const lastCandleMs = candles[candles.length - 1].time * 1000;
@@ -946,18 +1228,58 @@ export async function fetchCandles(timeframe: Timeframe): Promise<CandleDataset>
 
   const tfSeconds = cfg.seconds;
   const mergedByTime = new Map<number, Candle>();
+  const spotSorted1m =
+    liveSpot1mCandles.size > 0
+      ? Array.from(liveSpot1mCandles.values()).sort((a, b) => a.time - b.time)
+      : [];
+
+  // Translate COMEX GC=F candles onto Spot XAU/USD scale before merging live Spot bars
+  // so futures-vs-spot carry ($20-$35) never renders as a cliff jump at the chart's right edge.
+  let chartBasisOffset = 0;
+  if (baseDataset.candleSource.includes('GC=F') && baseDataset.candles.length > 0) {
+    if (spotSorted1m.length > 0) {
+      for (let i = baseDataset.candles.length - 1; i >= Math.max(0, baseDataset.candles.length - 12); i--) {
+        const bBar = baseDataset.candles[i];
+        const targetTime = bBar.time + tfSeconds - 60;
+        let bestSpot: Candle | null = null;
+        let bestDiff = Math.max(300, tfSeconds);
+        for (let s = spotSorted1m.length - 1; s >= 0; s--) {
+          const sBar = spotSorted1m[s];
+          const diff = Math.abs(sBar.time - targetTime);
+          if (diff <= bestDiff) {
+            bestDiff = diff;
+            bestSpot = sBar;
+          }
+          if (sBar.time < targetTime - bestDiff) break;
+        }
+        if (bestSpot) {
+          chartBasisOffset = bBar.close - bestSpot.close;
+          break;
+        }
+      }
+    }
+    if (chartBasisOffset === 0 && liveQuote.freshness === 'LIVE' && liveQuote.mid > 0) {
+      chartBasisOffset = baseDataset.candles[baseDataset.candles.length - 1].close - liveQuote.mid;
+    }
+  }
+
   for (const c of baseDataset.candles) {
-    mergedByTime.set(c.time, { ...c });
+    mergedByTime.set(c.time, {
+      ...c,
+      open: roundPrice2(c.open - chartBasisOffset),
+      high: roundPrice2(c.high - chartBasisOffset),
+      low: roundPrice2(c.low - chartBasisOffset),
+      close: roundPrice2(c.close - chartBasisOffset),
+    });
   }
   const lastBaseTime = baseDataset.candles[baseDataset.candles.length - 1]?.time ?? 0;
   let mergedLiveSpot = false;
 
   // Aggregate real recorded live Swissquote Spot 1m bars into the requested timeframe for live chart continuity
-  if (liveSpot1mCandles.size > 0) {
+  if (spotSorted1m.length > 0) {
     const aggregatedSpot = new Map<number, Candle>();
-    const sorted1m = Array.from(liveSpot1mCandles.values()).sort((a, b) => a.time - b.time);
 
-    for (const bar1m of sorted1m) {
+    for (const bar1m of spotSorted1m) {
       const bucket = Math.floor(bar1m.time / tfSeconds) * tfSeconds;
       const existing = aggregatedSpot.get(bucket);
       if (existing) {
@@ -995,7 +1317,7 @@ export async function fetchCandles(timeframe: Timeframe): Promise<CandleDataset>
         activeBase.low = Math.min(activeBase.low, spotBar.low);
         activeBase.close = spotBar.close;
         mergedLiveSpot = true;
-      } else {
+      } else if (spotBar.time > lastBaseTime) {
         mergedByTime.set(spotBar.time, { ...spotBar });
         mergedLiveSpot = true;
       }
@@ -1046,7 +1368,7 @@ export async function fetchCandles(timeframe: Timeframe): Promise<CandleDataset>
     latestTimestamp,
     freshness,
     candleSource: mergedLiveSpot
-      ? 'Yahoo Finance GC=F + Live Swissquote Spot XAU/USD'
+      ? 'Yahoo Finance GC=F (Spot-Aligned) + Live Swissquote Spot XAU/USD'
       : baseDataset.candleSource,
   };
 }
@@ -1055,6 +1377,7 @@ export function __resetMarketDataCachesForTest(): void {
   if (!IS_TEST_ENV) return;
   rawYahooCache.clear();
   inFlightYahooPromises.clear();
+  detectedRolloverAnchors.clear();
   liveSpot1mCandles.clear();
   quoteCache.current = null;
   prevCloseCache.current = null;

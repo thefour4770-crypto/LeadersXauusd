@@ -38,6 +38,7 @@ import {
   unsubscribeWebPush,
   type NotificationPermissionState,
 } from '../utils/phoneNotifications.ts';
+import { safeFixed, safeLocaleDateTime, safeLocaleTime, safeNumber } from '../utils/format.ts';
 import { JpgPreviewModal } from './JpgPreviewModal.tsx';
 import { SureIconBadge } from './SureIconBadge.tsx';
 import { TradeLevelsScale } from './TradeLevelsScale.tsx';
@@ -107,10 +108,12 @@ const SureScanCountdownText = memo(function SureScanCountdownText({
     }
 
     const updateCountdown = () => {
-      const diffSec = Math.max(
-        0,
-        Math.ceil((new Date(nextScanAt).getTime() - Date.now()) / 1000)
-      );
+      const targetMs = new Date(nextScanAt).getTime();
+      if (!Number.isFinite(targetMs)) {
+        setCountdownSec(null);
+        return;
+      }
+      const diffSec = Math.max(0, Math.ceil((targetMs - Date.now()) / 1000));
       setCountdownSec(diffSec);
     };
 
@@ -238,16 +241,20 @@ export const SureSignalsView = memo(function SureSignalsView({
 
   const formattedLastScanTime = useMemo(() => {
     if (!sureStatus?.lastScannedAt) return null;
-    return new Date(sureStatus.lastScannedAt).toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
+    return safeLocaleTime(
+      sureStatus.lastScannedAt,
+      {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      },
+      ''
+    ) || null;
   }, [sureStatus?.lastScannedAt]);
 
   const formattedSpotlightCreatedAt = useMemo(() => {
     if (!spotlight?.createdAt) return null;
-    return new Date(spotlight.createdAt).toLocaleString([], {
+    return safeLocaleDateTime(spotlight.createdAt, {
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
@@ -258,11 +265,15 @@ export const SureSignalsView = memo(function SureSignalsView({
 
   const formattedSpotlightClosedAt = useMemo(() => {
     if (!spotlight?.closedAt) return null;
-    return new Date(spotlight.closedAt).toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
+    return safeLocaleTime(
+      spotlight.closedAt,
+      {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      },
+      ''
+    ) || null;
   }, [spotlight?.closedAt]);
 
   const formattedSpotlightDuration = useMemo(
@@ -277,23 +288,27 @@ export const SureSignalsView = memo(function SureSignalsView({
 
   const formattedHistoryItems = useMemo(() => {
     const history = sureStatus?.history;
-    if (!history || history.length === 0) return [];
+    if (!Array.isArray(history) || history.length === 0) return [];
     return history.map((item) => ({
       item,
       badge: getStatusBadge(item.status),
       isActive: item.status === 'ACTIVE',
-      formattedCreatedAt: new Date(item.createdAt).toLocaleString([], {
+      formattedCreatedAt: safeLocaleDateTime(item.createdAt, {
         month: 'short',
         day: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
       }),
       formattedClosedAt: item.closedAt
-        ? new Date(item.closedAt).toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-          })
+        ? safeLocaleTime(
+            item.closedAt,
+            {
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+            },
+            ''
+          ) || null
         : null,
       formattedDuration: formatDurationMs(item.durationMs),
     }));
@@ -409,7 +424,7 @@ export const SureSignalsView = memo(function SureSignalsView({
             <span>
               Spot:{' '}
               <span className="text-zinc-200 font-semibold">
-                {sureStatus?.latestPrice != null ? `$${sureStatus.latestPrice.toFixed(2)}` : '—'}
+                {sureStatus?.latestPrice != null ? `$${safeFixed(sureStatus.latestPrice)}` : '—'}
               </span>
             </span>
             {!isNewsPaused && (
@@ -428,7 +443,7 @@ export const SureSignalsView = memo(function SureSignalsView({
                   ADX(14):{' '}
                   <span className="text-zinc-200 font-semibold">
                     {!isFeedUnavailable && sureStatus?.latestAdx != null
-                      ? sureStatus.latestAdx.toFixed(1)
+                      ? safeFixed(sureStatus.latestAdx, 1)
                       : '—'}
                   </span>
                 </span>
@@ -550,7 +565,7 @@ export const SureSignalsView = memo(function SureSignalsView({
             <div className="text-[11px] font-mono text-zinc-400">
               Market Check: {effectiveNews.marketStability.volatilityDetail} · Spread:{' '}
               {effectiveNews.marketStability.spreadUsd != null
-                ? `$${effectiveNews.marketStability.spreadUsd.toFixed(2)}`
+                ? `$${safeFixed(effectiveNews.marketStability.spreadUsd)}`
                 : '—'}
             </div>
           )}
@@ -578,9 +593,9 @@ export const SureSignalsView = memo(function SureSignalsView({
               <span>{spotlightBadge.label}</span>
               {spotlightStatus !== 'ACTIVE' && spotlight.closePrice != null && (
                 <span className="font-normal text-zinc-100">
-                  · Exit ${spotlight.closePrice.toFixed(2)} (
-                  {(spotlight.pnlPoints ?? 0) >= 0 ? '+' : ''}
-                  {(spotlight.pnlPoints ?? 0).toFixed(2)} pts) · Duration {formattedSpotlightDuration}
+                  · Exit ${safeFixed(spotlight.closePrice)} (
+                  {safeNumber(spotlight.pnlPoints) >= 0 ? '+' : ''}
+                  {safeFixed(spotlight.pnlPoints, 2, '0.00')} pts) · Duration {formattedSpotlightDuration}
                 </span>
               )}
               {spotlightStatus === 'ACTIVE' && (
@@ -652,7 +667,7 @@ export const SureSignalsView = memo(function SureSignalsView({
                   {spotlight.setupScore}/100
                 </div>
                 <div className="text-[11px] text-zinc-300">
-                  R:R {spotlight.riskRewardRatio} · ADX {spotlight.adxValue.toFixed(1)}
+                  R:R {spotlight.riskRewardRatio} · ADX {safeFixed(spotlight.adxValue, 1)}
                 </div>
                 <div className="text-[11px] text-zinc-400">
                   Created {formattedSpotlightCreatedAt}
@@ -667,59 +682,63 @@ export const SureSignalsView = memo(function SureSignalsView({
           </div>
 
           {/* 3-Card Layout: Entry Spot · Stop Loss (SL) · ONE Take Profit (TP) */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 font-mono tabular-nums">
-            <div className="rounded-xl bg-[#0D0E12] border border-[#D4AF37]/25 p-3 space-y-1">
-              <div className="text-[11px] text-zinc-400">Entry Price</div>
-              <div className="text-base font-bold text-zinc-100">
-                ${spotlight.tradeLevels.referencePrice.toFixed(2)}
+          {spotlight.tradeLevels && (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 font-mono tabular-nums">
+                <div className="rounded-xl bg-[#0D0E12] border border-[#D4AF37]/25 p-3 space-y-1">
+                  <div className="text-[11px] text-zinc-400">Entry Price</div>
+                  <div className="text-base font-bold text-zinc-100">
+                    ${safeFixed(spotlight.tradeLevels.referencePrice)}
+                  </div>
+                  <div className="text-[10px] text-zinc-500">
+                    ATR ${safeFixed(spotlight.tradeLevels.atrValue)}
+                  </div>
+                </div>
+                <div
+                  className={`rounded-xl bg-[#0D0E12] border p-3 space-y-1 ${
+                    spotlightStatus === 'SL_HIT'
+                      ? 'border-red-400 bg-red-500/15'
+                      : 'border-red-500/35'
+                  }`}
+                >
+                  <div className="flex items-center justify-between text-[11px] text-red-400 font-semibold">
+                    <span>Stop Loss (SL)</span>
+                    {spotlightStatus === 'SL_HIT' && <span className="font-bold">SL HIT</span>}
+                  </div>
+                  <div className="text-base font-bold text-red-400">
+                    ${safeFixed(spotlight.tradeLevels.stopLoss)}
+                  </div>
+                  <div className="text-[10px] text-zinc-500">
+                    -${safeFixed(spotlight.tradeLevels.riskPoints)} risk
+                  </div>
+                </div>
+                <div
+                  className={`rounded-xl bg-[#0D0E12] border p-3 space-y-1 ${
+                    spotlightStatus === 'TP_HIT'
+                      ? 'border-emerald-400 bg-emerald-500/15'
+                      : 'border-emerald-500/35'
+                  }`}
+                >
+                  <div className="flex items-center justify-between text-[11px] text-emerald-400 font-semibold">
+                    <span>Take Profit (TP)</span>
+                    {spotlightStatus === 'TP_HIT' && <span className="font-bold">TP HIT</span>}
+                  </div>
+                  <div className="text-base font-bold text-emerald-400">
+                    ${safeFixed(spotlight.tradeLevels.takeProfit1)}
+                  </div>
+                  <div className="text-[10px] text-zinc-500">
+                    R:R {spotlight.tradeLevels.rewardRiskRatio1}
+                  </div>
+                </div>
               </div>
-              <div className="text-[10px] text-zinc-500">
-                ATR ${spotlight.tradeLevels.atrValue.toFixed(2)}
-              </div>
-            </div>
-            <div
-              className={`rounded-xl bg-[#0D0E12] border p-3 space-y-1 ${
-                spotlightStatus === 'SL_HIT'
-                  ? 'border-red-400 bg-red-500/15'
-                  : 'border-red-500/35'
-              }`}
-            >
-              <div className="flex items-center justify-between text-[11px] text-red-400 font-semibold">
-                <span>Stop Loss (SL)</span>
-                {spotlightStatus === 'SL_HIT' && <span className="font-bold">SL HIT</span>}
-              </div>
-              <div className="text-base font-bold text-red-400">
-                ${spotlight.tradeLevels.stopLoss.toFixed(2)}
-              </div>
-              <div className="text-[10px] text-zinc-500">
-                -${spotlight.tradeLevels.riskPoints.toFixed(2)} risk
-              </div>
-            </div>
-            <div
-              className={`rounded-xl bg-[#0D0E12] border p-3 space-y-1 ${
-                spotlightStatus === 'TP_HIT'
-                  ? 'border-emerald-400 bg-emerald-500/15'
-                  : 'border-emerald-500/35'
-              }`}
-            >
-              <div className="flex items-center justify-between text-[11px] text-emerald-400 font-semibold">
-                <span>Take Profit (TP)</span>
-                {spotlightStatus === 'TP_HIT' && <span className="font-bold">TP HIT</span>}
-              </div>
-              <div className="text-base font-bold text-emerald-400">
-                ${spotlight.tradeLevels.takeProfit1.toFixed(2)}
-              </div>
-              <div className="text-[10px] text-zinc-500">
-                R:R {spotlight.tradeLevels.rewardRiskRatio1}
-              </div>
-            </div>
-          </div>
 
-          <TradeLevelsScale
-            classification={spotlight.direction}
-            levels={spotlight.tradeLevels}
-            singleTp
-          />
+              <TradeLevelsScale
+                classification={spotlight.direction}
+                levels={spotlight.tradeLevels}
+                singleTp
+              />
+            </>
+          )}
         </section>
       ) : (
         <section className="rounded-2xl border border-[#D4AF37]/35 bg-[#121318] shadow-[0_8px_24px_-16px_rgba(212,175,55,0.22)] p-5 space-y-2.5">
@@ -787,7 +806,7 @@ export const SureSignalsView = memo(function SureSignalsView({
             <div className="rounded-xl bg-[#0D0E12] border border-[#D4AF37]/22 p-2.5">
               <div className="text-[10px] text-zinc-400">Avg R:R</div>
               <div className="text-sm font-bold text-zinc-100">
-                {stats.avgRiskReward != null ? `1 : ${stats.avgRiskReward.toFixed(2)}` : '—'}
+                {stats.avgRiskReward != null ? `1 : ${safeFixed(stats.avgRiskReward)}` : '—'}
               </div>
             </div>
             <div className="rounded-xl bg-[#0D0E12] border border-[#D4AF37]/22 p-2.5">
@@ -947,7 +966,7 @@ export const SureSignalsView = memo(function SureSignalsView({
                         · Score {item.setupScore}/100
                       </span>
                       <span className="text-xs font-mono text-zinc-200">
-                        · Entry ${item.tradeLevels.referencePrice.toFixed(2)}
+                        · Entry ${safeFixed(item.tradeLevels?.referencePrice ?? item.spotPrice)}
                       </span>
                       {item.closePrice != null && (
                         <span
@@ -959,15 +978,15 @@ export const SureSignalsView = memo(function SureSignalsView({
                               : 'text-amber-300'
                           }`}
                         >
-                          · Exit ${item.closePrice.toFixed(2)} ({(item.pnlPoints ?? 0) >= 0 ? '+' : ''}
-                          {(item.pnlPoints ?? 0).toFixed(2)} pts)
+                          · Exit ${safeFixed(item.closePrice)} ({safeNumber(item.pnlPoints) >= 0 ? '+' : ''}
+                          {safeFixed(item.pnlPoints, 2, '0.00')} pts)
                         </span>
                       )}
                     </div>
                     <div className="text-xs font-mono text-zinc-300 flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
-                      <span>SL ${item.tradeLevels.stopLoss.toFixed(2)}</span>
+                      <span>SL ${safeFixed(item.tradeLevels?.stopLoss)}</span>
                       <span>·</span>
-                      <span>TP ${item.tradeLevels.takeProfit1.toFixed(2)}</span>
+                      <span>TP ${safeFixed(item.tradeLevels?.takeProfit1)}</span>
                       <span>·</span>
                       <span>R:R {item.riskRewardRatio}</span>
                       <span>·</span>

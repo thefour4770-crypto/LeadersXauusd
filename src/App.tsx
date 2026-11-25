@@ -43,6 +43,7 @@ import { SureIconBadge } from './components/SureIconBadge.tsx';
 import { SureSignalsView } from './components/SureSignalsView.tsx';
 import { TradeView } from './components/TradeView.tsx';
 import { useOnlineStatus } from './hooks/usePWAInstall.ts';
+import { fetchWithTimeout, safeFixed, safeNumber } from './utils/format.ts';
 
 type BottomTab = 'TRADE' | 'NEWS' | 'SURE' | 'SIGNALS' | 'PROFILE';
 
@@ -144,7 +145,7 @@ export default function App() {
     }
     quoteInFlightRef.current = true;
     try {
-      const res = await fetch('/api/market/quote');
+      const res = await fetchWithTimeout('/api/market/quote', { cache: 'no-store' }, 8_000);
       const json = await res.json().catch(() => ({}));
       const nextQuote: MarketQuote | null = json.quote ?? null;
       applyIncomingQuote(nextQuote, res.ok);
@@ -159,7 +160,7 @@ export default function App() {
 
   const fetchReports = useCallback(async () => {
     try {
-      const res = await fetch('/api/reports');
+      const res = await fetchWithTimeout('/api/reports', { cache: 'no-store' }, 12_000);
       if (!res.ok) return;
       const json = await res.json().catch(() => null);
       if (json && Array.isArray(json.reports)) {
@@ -178,7 +179,7 @@ export default function App() {
     }
     try {
       const url = forceRefresh ? '/api/news/calendar?refresh=1' : '/api/news/calendar';
-      const res = await fetch(url);
+      const res = await fetchWithTimeout(url, { cache: 'no-store' }, 15_000);
       const json = (await res.json().catch(() => ({}))) as {
         calendar?: EconomicCalendarPayload;
         error?: string;
@@ -250,7 +251,7 @@ export default function App() {
 
   const fetchSureStatus = useCallback(async () => {
     try {
-      const res = await fetch('/api/sure-signals');
+      const res = await fetchWithTimeout('/api/sure-signals', { cache: 'no-store' }, 15_000);
       if (!res.ok) return;
       const json = await res.json().catch(() => null);
       if (json?.sureStatus) {
@@ -266,9 +267,11 @@ export default function App() {
   const handleDeleteSureSignal = useCallback(
     async (id: string) => {
       try {
-        const res = await fetch(`/api/sure-signals/${encodeURIComponent(id)}`, {
-          method: 'DELETE',
-        });
+        const res = await fetchWithTimeout(
+          `/api/sure-signals/${encodeURIComponent(id)}`,
+          { method: 'DELETE' },
+          10_000
+        );
         if (res.ok) {
           const json = await res.json().catch(() => ({}));
           if (json.sureStatus) {
@@ -318,6 +321,8 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     let timerId: number | null = null;
+    let reconnectTimerId: number | null = null;
+    let reconnectAttempts = 0;
     let eventSource: EventSource | null = null;
 
     const clearScheduled = () => {
@@ -327,7 +332,15 @@ export default function App() {
       }
     };
 
+    const clearReconnectTimer = () => {
+      if (reconnectTimerId !== null) {
+        window.clearTimeout(reconnectTimerId);
+        reconnectTimerId = null;
+      }
+    };
+
     const closeStream = () => {
+      clearReconnectTimer();
       if (eventSource) {
         eventSource.close();
         eventSource = null;
@@ -340,6 +353,7 @@ export default function App() {
       try {
         const es = new EventSource('/api/market/stream');
         es.onopen = () => {
+          reconnectAttempts = 0;
           if (!cancelled) {
             void fetchSureStatus();
           }
@@ -417,7 +431,15 @@ export default function App() {
           }
         });
         es.onerror = () => {
-          // Adaptive HTTP polling fallback remains active automatically
+          if (cancelled || document.hidden) return;
+          closeStream();
+          const backoffMs = Math.min(15_000, 2_000 * Math.pow(2, Math.min(3, reconnectAttempts)));
+          reconnectAttempts += 1;
+          reconnectTimerId = window.setTimeout(() => {
+            if (!cancelled && !document.hidden) {
+              openStream();
+            }
+          }, backoffMs);
         };
         eventSource = es;
       } catch {
@@ -454,6 +476,7 @@ export default function App() {
         clearScheduled();
         closeStream();
       } else {
+        reconnectAttempts = 0;
         void startLiveSync();
         void fetchSureStatus();
         void fetchNewsCalendar(false);
@@ -497,7 +520,11 @@ export default function App() {
 
   const handleDeleteReport = useCallback(async (id: string) => {
     try {
-      const res = await fetch(`/api/reports/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const res = await fetchWithTimeout(
+        `/api/reports/${encodeURIComponent(id)}`,
+        { method: 'DELETE' },
+        10_000
+      );
       if (res.ok || res.status === 404) {
         setReports((prev) => prev.filter((r) => r.id !== id));
       }
@@ -576,9 +603,9 @@ export default function App() {
                 <>
                   <span className="font-bold">SURE {bannerAlert.entry.direction}</span>
                   <span className="text-zinc-200">
-                    ${bannerAlert.entry.spotPrice.toFixed(2)} · Score{' '}
+                    ${safeFixed(bannerAlert.entry.spotPrice)} · Score{' '}
                     {bannerAlert.entry.setupScore ?? bannerAlert.entry.confidencePct}/100 · TP $
-                    {bannerAlert.entry.tradeLevels.takeProfit1.toFixed(2)}
+                    {safeFixed(bannerAlert.entry.tradeLevels?.takeProfit1)}
                   </span>
                 </>
               ) : (
@@ -592,9 +619,9 @@ export default function App() {
                     · SURE {bannerAlert.entry.direction}
                   </span>
                   <span className="text-zinc-200">
-                    Close ${(bannerAlert.entry.closePrice ?? bannerAlert.entry.spotPrice).toFixed(2)} (
-                    {(bannerAlert.entry.pnlPoints ?? 0) >= 0 ? '+' : ''}
-                    {(bannerAlert.entry.pnlPoints ?? 0).toFixed(2)} pts)
+                    Close ${safeFixed(bannerAlert.entry.closePrice ?? bannerAlert.entry.spotPrice)} (
+                    {safeNumber(bannerAlert.entry.pnlPoints) >= 0 ? '+' : ''}
+                    {safeFixed(bannerAlert.entry.pnlPoints, 2, '0.00')} pts)
                   </span>
                 </>
               )}
@@ -720,6 +747,7 @@ export default function App() {
               onClick={() => {
                 setActiveTab('SURE');
                 setUnreadSureAlert(false);
+                void fetchSureStatus();
               }}
               aria-label="Sure Signal Auto Scanner"
               className={`relative w-full h-[46px] px-1.5 rounded-xl border flex flex-col items-center justify-center gap-[3px] transition-all cursor-pointer overflow-hidden ${

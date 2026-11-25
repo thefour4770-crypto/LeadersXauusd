@@ -1,13 +1,20 @@
 import { memo, useCallback, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { ChevronRight, Code2, ShieldCheck } from 'lucide-react';
+import { ChevronRight, Code2, Download, ShieldCheck } from 'lucide-react';
+import { usePWAInstall } from '../hooks/usePWAInstall.ts';
 import { DeveloperInfoView } from './DeveloperInfoView.tsx';
 
 export const ProfileView = memo(function ProfileView() {
   const [showDeveloperInfo, setShowDeveloperInfo] = useState(false);
+  const { isInstallable, isInstalled, isIOS, isInIframe, install } = usePWAInstall();
 
   const handleOpenDevInfo = useCallback(() => setShowDeveloperInfo(true), []);
   const handleCloseDevInfo = useCallback(() => setShowDeveloperInfo(false), []);
+  const handleInstallClick = useCallback(() => {
+    void install();
+  }, [install]);
+
+  const showInstallCard = !isInstalled && !isInIframe && (isInstallable || isIOS);
 
   return (
     <section className="flex-1 w-full px-4 sm:px-8 pt-6 pb-10 bg-gradient-to-b from-[#FFFFFF] via-[#FDFBF7] to-[#F5EEDB] text-[#09090B]">
@@ -86,6 +93,36 @@ export const ProfileView = memo(function ProfileView() {
                 </div>
               </div>
             </div>
+
+            {/* Optional Install App Card (shown only outside iframes when installable or on iOS) */}
+            {showInstallCard && (
+              <div className="rounded-3xl bg-white border border-[#D4AF37]/40 shadow-[0_12px_30px_-16px_rgba(140,100,5,0.16)] p-5 sm:p-6 flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-4 min-w-0">
+                  <span className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#FBF5E3] to-[#F3E5BE] border border-[#D4AF37]/45 flex items-center justify-center shrink-0">
+                    <Download className="w-5 h-5 text-[#8E6603]" />
+                  </span>
+                  <div className="min-w-0">
+                    <div className="font-display font-bold text-base text-[#09090B]">
+                      Install LEADERS XAUUSD App
+                    </div>
+                    <div className="text-xs text-[#52525B]">
+                      {isInstallable
+                        ? 'Install on your home screen for instant launch & background alerts'
+                        : 'Tap Safari Share → Add to Home Screen for full app mode & push alerts'}
+                    </div>
+                  </div>
+                </div>
+                {isInstallable && (
+                  <button
+                    type="button"
+                    onClick={handleInstallClick}
+                    className="min-h-[42px] px-4 rounded-xl bg-gradient-to-r from-[#E6C153] to-[#C89B22] text-[#09090B] font-display font-bold text-xs tracking-wide hover:brightness-105 transition-all cursor-pointer shrink-0"
+                  >
+                    Install App
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Menu Card: Developer Info */}
             <div className="rounded-3xl bg-white border border-[#D4AF37]/40 shadow-[0_12px_30px_-16px_rgba(140,100,5,0.16)] overflow-hidden">

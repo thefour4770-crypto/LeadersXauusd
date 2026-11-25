@@ -1,4 +1,5 @@
 import type { AnalysisReport, SignalClassification, SureSignalEntry } from '../types/market.ts';
+import { fetchWithTimeout, safeFixed, safeNumber } from './format.ts';
 import { getReportSignalConfidence } from './signalConfidence.ts';
 
 const LOGICAL_WIDTH = 1080;
@@ -203,7 +204,7 @@ function renderReportToCanvas(
     ctx.font = '500 13px ui-monospace, SFMono-Regular, Menlo, monospace';
     ctx.fillStyle = PALETTE.textSecondary;
     ctx.fillText(
-      `Confidence: ${confidence.scorePct}% (${confidence.tier})  ·  Score: ${report.combinedScore >= 0 ? '+' : ''}${report.combinedScore.toFixed(3)}  ·  TF: ${report.selectedTimeframes.join(', ')}`,
+      `Confidence: ${confidence.scorePct}% (${confidence.tier})  ·  Score: ${safeNumber(report.combinedScore) >= 0 ? '+' : ''}${safeFixed(report.combinedScore, 3, '0.000')}  ·  TF: ${(report.selectedTimeframes ?? []).join(', ')}`,
       PADDING_X + 24,
       y + 96
     );
@@ -215,17 +216,17 @@ function renderReportToCanvas(
 
     ctx.font = '700 32px ui-monospace, SFMono-Regular, Menlo, monospace';
     ctx.fillStyle = PALETTE.textPrimary;
-    ctx.fillText(`$${report.spotPrice.toFixed(2)}`, PADDING_X + CONTENT_WIDTH - 24, y + 42);
+    ctx.fillText(`$${safeFixed(report.spotPrice)}`, PADDING_X + CONTENT_WIDTH - 24, y + 42);
 
     ctx.font = '400 12px ui-monospace, SFMono-Regular, Menlo, monospace';
     ctx.fillStyle = PALETTE.textSecondary;
     ctx.fillText(
-      `Bid $${report.spotBid.toFixed(2)}  ·  Ask $${report.spotAsk.toFixed(2)}`,
+      `Bid $${safeFixed(report.spotBid)}  ·  Ask $${safeFixed(report.spotAsk)}`,
       PADDING_X + CONTENT_WIDTH - 24,
       y + 84
     );
     ctx.fillStyle = PALETTE.textMuted;
-    ctx.fillText(`${report.spotSource}`, PADDING_X + CONTENT_WIDTH - 24, y + 102);
+    ctx.fillText(`${report.spotSource ?? ''}`, PADDING_X + CONTENT_WIDTH - 24, y + 102);
     ctx.textAlign = 'left';
   }
   y += classCardH + 18;
@@ -250,7 +251,7 @@ function renderReportToCanvas(
       ctx.font = '500 12px ui-monospace, SFMono-Regular, Menlo, monospace';
       ctx.fillStyle = PALETTE.textMuted;
       ctx.fillText(
-        `${lv.referenceTimeframe} ATR(14): $${lv.atrValue.toFixed(2)} · Risk: $${lv.riskPoints.toFixed(2)}`,
+        `${lv.referenceTimeframe} ATR(14): $${safeFixed(lv.atrValue)} · Risk: $${safeFixed(lv.riskPoints)}`,
         PADDING_X + CONTENT_WIDTH - 24,
         y + 20
       );
@@ -263,21 +264,21 @@ function renderReportToCanvas(
       const items = [
         {
           label: 'Entry Spot',
-          val: `$${lv.referencePrice.toFixed(2)}`,
+          val: `$${safeFixed(lv.referencePrice)}`,
           sub: 'Spot at analysis',
           color: PALETTE.textPrimary,
           border: PALETTE.border,
         },
         {
           label: 'Stop Loss (SL)',
-          val: `$${lv.stopLoss.toFixed(2)}`,
-          sub: `-$${lv.riskPoints.toFixed(2)} risk`,
+          val: `$${safeFixed(lv.stopLoss)}`,
+          sub: `-$${safeFixed(lv.riskPoints)} risk`,
           color: PALETTE.sell,
           border: PALETTE.sellBorder,
         },
         {
           label: 'Take Profit (TP)',
-          val: `$${lv.takeProfit1.toFixed(2)}`,
+          val: `$${safeFixed(lv.takeProfit1)}`,
           sub: `R:R ${lv.rewardRiskRatio1}`,
           color: PALETTE.buy,
           border: PALETTE.buyBorder,
@@ -419,12 +420,12 @@ function renderReportToCanvas(
   const uncLines = wrapText(ctx, `Uncertainty & Risk Context: ${report.uncertaintyExplanation}`, CONTENT_WIDTH - 48, bodyFont);
 
   const supText =
-    report.supportLevels.length > 0
-      ? report.supportLevels.map((v) => `$${v.toFixed(2)}`).join('  ·  ')
+    report.supportLevels && report.supportLevels.length > 0
+      ? report.supportLevels.map((v) => `$${safeFixed(v)}`).join('  ·  ')
       : 'None detected in lookback';
   const resText =
-    report.resistanceLevels.length > 0
-      ? report.resistanceLevels.map((v) => `$${v.toFixed(2)}`).join('  ·  ')
+    report.resistanceLevels && report.resistanceLevels.length > 0
+      ? report.resistanceLevels.map((v) => `$${safeFixed(v)}`).join('  ·  ')
       : 'None detected in lookback';
 
   const synthCardH =
@@ -587,11 +588,15 @@ export async function uploadJpgForAttachmentUrl(
   dataUrl: string
 ): Promise<string | null> {
   try {
-    const res = await fetch('/api/export/jpg', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename, dataUrl }),
-    });
+    const res = await fetchWithTimeout(
+      '/api/export/jpg',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename, dataUrl }),
+      },
+      15_000
+    );
     if (!res.ok) return null;
     const json = await res.json().catch(() => ({}));
     return typeof json.downloadUrl === 'string' ? json.downloadUrl : null;
@@ -702,17 +707,17 @@ function renderSureSignalToCanvas(
     ctx.font = '500 13px ui-monospace, SFMono-Regular, Menlo, monospace';
     ctx.fillStyle = PALETTE.textSecondary;
     ctx.fillText(
-      `Setup Score: ${signal.setupScore}/100 (${signal.scoreCategory})  ·  ADX: ${signal.adxValue.toFixed(1)}  ·  R:R: ${signal.riskRewardRatio}`,
+      `Setup Score: ${signal.setupScore}/100 (${signal.scoreCategory})  ·  ADX: ${safeFixed(signal.adxValue, 1)}  ·  R:R: ${signal.riskRewardRatio}`,
       PADDING_X + 24,
       y + 96
     );
 
     if (signal.status !== 'ACTIVE' && signal.closePrice != null) {
-      const pnl = signal.pnlPoints ?? 0;
+      const pnl = safeNumber(signal.pnlPoints);
       ctx.font = '700 13px ui-monospace, SFMono-Regular, Menlo, monospace';
       ctx.fillStyle = statusStyle.color;
       ctx.fillText(
-        `Exit: $${signal.closePrice.toFixed(2)} (${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} pts)  ·  Duration: ${formatDurationMs(signal.durationMs)}`,
+        `Exit: $${safeFixed(signal.closePrice)} (${pnl >= 0 ? '+' : ''}${safeFixed(pnl, 2, '0.00')} pts)  ·  Duration: ${formatDurationMs(signal.durationMs)}`,
         PADDING_X + 24,
         y + 118
       );
@@ -725,12 +730,12 @@ function renderSureSignalToCanvas(
 
     ctx.font = '700 32px ui-monospace, SFMono-Regular, Menlo, monospace';
     ctx.fillStyle = PALETTE.textPrimary;
-    ctx.fillText(`$${signal.tradeLevels.referencePrice.toFixed(2)}`, PADDING_X + CONTENT_WIDTH - 24, y + 42);
+    ctx.fillText(`$${safeFixed(signal.tradeLevels?.referencePrice ?? signal.spotPrice)}`, PADDING_X + CONTENT_WIDTH - 24, y + 42);
 
     ctx.font = '400 12px ui-monospace, SFMono-Regular, Menlo, monospace';
     ctx.fillStyle = PALETTE.textSecondary;
     ctx.fillText(
-      `${signal.tradeLevels.referenceTimeframe} ATR(14): $${signal.tradeLevels.atrValue.toFixed(2)}`,
+      `${signal.tradeLevels?.referenceTimeframe ?? '15m'} ATR(14): $${safeFixed(signal.tradeLevels?.atrValue)}`,
       PADDING_X + CONTENT_WIDTH - 24,
       y + 84
     );
@@ -742,7 +747,7 @@ function renderSureSignalToCanvas(
   const lv = signal.tradeLevels;
   const bodyFont = '400 13px system-ui, -apple-system, Segoe UI, sans-serif';
   const summaryLines = wrapText(ctx, signal.summary, CONTENT_WIDTH - 48, bodyFont);
-  const methLines = wrapText(ctx, lv.methodology, CONTENT_WIDTH - 48, bodyFont);
+  const methLines = wrapText(ctx, lv?.methodology ?? '', CONTENT_WIDTH - 48, bodyFont);
   const levelsCardH = 166 + (summaryLines.length + methLines.length) * 19 + 12;
 
   if (!dryRun) {
@@ -759,22 +764,22 @@ function renderSureSignalToCanvas(
     const items = [
       {
         label: 'Entry Price',
-        val: `$${lv.referencePrice.toFixed(2)}`,
+        val: `$${safeFixed(lv?.referencePrice ?? signal.spotPrice)}`,
         sub: `Spot at trigger`,
         color: PALETTE.textPrimary,
         border: PALETTE.border,
       },
       {
         label: 'Stop Loss (SL)',
-        val: `$${lv.stopLoss.toFixed(2)}`,
-        sub: `-$${lv.riskPoints.toFixed(2)} risk`,
+        val: `$${safeFixed(lv?.stopLoss)}`,
+        sub: `-$${safeFixed(lv?.riskPoints)} risk`,
         color: PALETTE.sell,
         border: PALETTE.sellBorder,
       },
       {
         label: 'Take Profit (TP)',
-        val: `$${lv.takeProfit1.toFixed(2)}`,
-        sub: `R:R ${lv.rewardRiskRatio1}`,
+        val: `$${safeFixed(lv?.takeProfit1)}`,
+        sub: `R:R ${lv?.rewardRiskRatio1 ?? signal.riskRewardRatio}`,
         color: PALETTE.buy,
         border: PALETTE.buyBorder,
       },

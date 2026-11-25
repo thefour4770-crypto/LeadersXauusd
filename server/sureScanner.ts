@@ -31,10 +31,32 @@ import {
 import { sendSureOutcomeWebPush, sendSureSignalWebPush } from './webPushStore.ts';
 
 export const SURE_SCAN_INTERVAL_MS = 60_000;
+const SCAN_SECOND_OFFSET_MS = 3_000; // Scan 3s past each UTC minute close
 const POST_TP_COOLDOWN_MS = 5 * 60_000; // Wait 5m after TP hit before re-entering same direction
 const POST_SL_SAME_DIR_COOLDOWN_MS = 30 * 60_000; // Wait 30m (6x 5m candles) after SL hit before same-direction re-entry
 const POST_SL_ANY_COOLDOWN_MS = 15 * 60_000; // Wait 15m after any SL hit for whipsaw volatility to settle
 const CONSECUTIVE_SL_COOLDOWN_MS = 60 * 60_000; // Pause 60m after 2 consecutive SL hits to avoid choppy whipsaw
+
+export function getNextUtcMinuteScanMs(nowMs = Date.now()): number {
+  const minuteFloor = Math.floor(nowMs / SURE_SCAN_INTERVAL_MS) * SURE_SCAN_INTERVAL_MS;
+  const candidate = minuteFloor + SCAN_SECOND_OFFSET_MS;
+  return candidate > nowMs + 1_000 ? candidate : candidate + SURE_SCAN_INTERVAL_MS;
+}
+
+export function isSureStatusStaleForMinute(
+  status: Pick<SureSignalScanStatus, 'tradeLocked' | 'lastScannedAt'>,
+  nowMs = Date.now()
+): boolean {
+  if (status.tradeLocked) return false;
+  if (!status.lastScannedAt) return true;
+  const lastMs = new Date(status.lastScannedAt).getTime();
+  if (!Number.isFinite(lastMs)) return true;
+  if (nowMs - lastMs >= 65_000) return true;
+  const lastMinute = Math.floor(lastMs / SURE_SCAN_INTERVAL_MS);
+  const nowMinute = Math.floor(nowMs / SURE_SCAN_INTERVAL_MS);
+  const msIntoMinute = nowMs - nowMinute * SURE_SCAN_INTERVAL_MS;
+  return nowMinute > lastMinute && msIntoMinute >= SCAN_SECOND_OFFSET_MS;
+}
 
 type SureSignalListener = (event: {
   type: 'sure_signal' | 'sure_status' | 'sure_outcome';
@@ -140,7 +162,8 @@ export async function reconcileMissedSpotCandlesForActiveTrade(): Promise<SureSi
   const active = findActiveTrade(history);
   if (!active) return null;
 
-  const startSec = Math.floor(new Date(active.createdAt).getTime() / 1000);
+  const createdMs = new Date(active.createdAt).getTime();
+  const startSec = Number.isFinite(createdMs) ? Math.floor(createdMs / 1000) : Math.floor(Date.now() / 1000) - 3_600;
   const candlesSince = await getRecordedSpot1mCandlesSince(startSec);
   if (candlesSince.length === 0) return null;
 
@@ -156,7 +179,7 @@ export async function reconcileMissedSpotCandlesForActiveTrade(): Promise<SureSi
 
   const closedAtMs = Math.max(Date.now(), (outcome.candleTime + 60) * 1000);
   const closedAt = new Date(closedAtMs).toISOString();
-  const durationMs = Math.max(0, closedAtMs - new Date(active.createdAt).getTime());
+  const durationMs = Number.isFinite(createdMs) ? Math.max(0, closedAtMs - createdMs) : 0;
 
   const updated = await updateSureSignal(active.id, {
     status: outcome.status,
@@ -177,7 +200,7 @@ export async function reconcileMissedSpotCandlesForActiveTrade(): Promise<SureSi
       latestPrice: outcome.closePrice,
       reason: `${formatOutcomeBanner(outcome.status)} recorded on recovery for SURE ${
         updated.direction
-      } at $${outcome.closePrice.toFixed(2)}.`,
+      } at $${Number(outcome.closePrice).toFixed(2)}.`,
       activeSignal: updated,
       history: nextHistory,
       stats: computeSureHistoryStats(nextHistory),
@@ -209,7 +232,8 @@ async function executeOutcomeCheckAtPrice(
   if (!hit) return false;
 
   const closedAt = new Date(nowMs).toISOString();
-  const durationMs = Math.max(0, nowMs - new Date(active.createdAt).getTime());
+  const createdMs = new Date(active.createdAt).getTime();
+  const durationMs = Number.isFinite(createdMs) ? Math.max(0, nowMs - createdMs) : 0;
   const updated = await updateSureSignal(active.id, {
     status: hit.status,
     closedAt,
@@ -233,9 +257,9 @@ async function executeOutcomeCheckAtPrice(
     nextScanAt: new Date(nowMs + 3_500).toISOString(),
     marketState: 'NO_SURE_SIGNAL',
     latestPrice: hit.closePrice,
-    reason: `${outcomeText} on SURE ${updated.direction} at $${hit.closePrice.toFixed(
+    reason: `${outcomeText} on SURE ${updated.direction} at $${Number(hit.closePrice).toFixed(
       2
-    )} (${pnlSign}${hit.pnlPoints.toFixed(2)} pts). Scanner unlocked for next high-quality setup.`,
+    )} (${pnlSign}${Number(hit.pnlPoints).toFixed(2)} pts). Scanner unlocked for next high-quality setup.`,
     activeSignal: updated,
     history: nextHistory,
     stats: computeSureHistoryStats(nextHistory),
@@ -244,9 +268,10 @@ async function executeOutcomeCheckAtPrice(
   broadcast('sure_outcome', { closedSignal: updated });
   void sendSureOutcomeWebPush(updated).catch(() => {});
 
-  setTimeout(() => {
+  const timer = setTimeout(() => {
     void runSureSignalScan().catch(() => {});
   }, 3_500);
+  timer.unref?.();
 
   return true;
 }
@@ -349,9 +374,10 @@ export async function handleSureSignalDeleted(deletedId: string): Promise<SureSi
       reason: 'Active SURE trade cleared. SCANNING FOR HIGH-QUALITY SETUP',
     };
     broadcast('sure_status');
-    setTimeout(() => {
-      void runSureSignalScan();
+    const timer = setTimeout(() => {
+      void runSureSignalScan().catch(() => {});
     }, 500);
+    timer.unref?.();
   }
   return status;
 }
@@ -364,7 +390,7 @@ export async function runSureSignalScan(): Promise<SureSignalScanStatus> {
   inFlightScan = (async () => {
     const indicators = createAutoPerfectIndicators();
     const scanStartedMs = Date.now();
-    const nextScanIso = new Date(scanStartedMs + SURE_SCAN_INTERVAL_MS).toISOString();
+    const nextScanIso = new Date(getNextUtcMinuteScanMs(scanStartedMs)).toISOString();
 
     try {
       // Step 1: Settle any active trade on missed candles or latest quote before considering any new scan
@@ -503,14 +529,13 @@ export async function runSureSignalScan(): Promise<SureSignalScanStatus> {
         tradeLevels &&
         evaluation.totalScore >= 90
       ) {
-        const lastClosed = existingHistory.find((h) => h.status !== 'ACTIVE' && h.closedAt != null) ?? null;
-        const closedAgeMs =
-          lastClosed?.closedAt != null
-            ? scanStartedMs - new Date(lastClosed.closedAt).getTime()
-            : Number.POSITIVE_INFINITY;
         const recentDecided = existingHistory.filter(
           (h) => h.status === 'TP_HIT' || h.status === 'SL_HIT'
         );
+        const lastClosed = recentDecided[0] ?? null;
+        const closedAtMs = lastClosed?.closedAt != null ? new Date(lastClosed.closedAt).getTime() : NaN;
+        const closedAgeMs =
+          Number.isFinite(closedAtMs) ? scanStartedMs - closedAtMs : Number.POSITIVE_INFINITY;
         const twoConsecutiveSl =
           recentDecided.length >= 2 &&
           recentDecided[0].status === 'SL_HIT' &&
@@ -807,23 +832,37 @@ function handleLiveQuoteForSureLifecycle(quote: MarketQuote): void {
   }
 }
 
+function scheduleNextAlignedScan(): void {
+  if (scannerTimer) return;
+  const delayMs = Math.max(1_000, getNextUtcMinuteScanMs(Date.now()) - Date.now());
+  scannerTimer = setTimeout(() => {
+    scannerTimer = null;
+    void runSureSignalScan()
+      .catch(() => {})
+      .finally(() => {
+        scheduleNextAlignedScan();
+      });
+  }, delayMs);
+  scannerTimer.unref?.();
+}
+
 export function startSureSignalBackgroundScanner(): void {
   if (!quoteUnsubscribe) {
     quoteUnsubscribe = subscribeLiveQuotes(handleLiveQuoteForSureLifecycle);
   }
   if (scannerTimer) return;
 
-  // Recover persistent state & check any missed Spot bars immediately on server startup
   void reconcileMissedSpotCandlesForActiveTrade()
     .catch(() => null)
     .then(() => getSureSignalStatus().catch(() => latestStatus))
     .finally(() => {
-      setTimeout(() => {
-        void runSureSignalScan().catch(() => {});
+      const bootTimer = setTimeout(() => {
+        void runSureSignalScan()
+          .catch(() => {})
+          .finally(() => {
+            scheduleNextAlignedScan();
+          });
       }, 3_000);
+      bootTimer.unref?.();
     });
-
-  scannerTimer = setInterval(() => {
-    void runSureSignalScan().catch(() => {});
-  }, SURE_SCAN_INTERVAL_MS);
 }

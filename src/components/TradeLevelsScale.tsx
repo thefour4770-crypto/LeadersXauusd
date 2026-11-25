@@ -1,5 +1,6 @@
 import { memo, useMemo } from 'react';
 import type { SignalClassification, TradeLevelsAnalysis } from '../types/market.ts';
+import { safeFixed, safeNumber } from '../utils/format.ts';
 
 interface TradeLevelsScaleProps {
   classification: SignalClassification;
@@ -12,7 +13,11 @@ export const TradeLevelsScale = memo(function TradeLevelsScale({
   levels,
   singleTp = true,
 }: TradeLevelsScaleProps) {
-  const { referencePrice, stopLoss, takeProfit1, takeProfit2, riskPoints } = levels;
+  const referencePrice = safeNumber(levels?.referencePrice);
+  const stopLoss = safeNumber(levels?.stopLoss, referencePrice);
+  const takeProfit1 = safeNumber(levels?.takeProfit1, referencePrice);
+  const takeProfit2 = safeNumber(levels?.takeProfit2, takeProfit1);
+  const riskPoints = Math.max(0, safeNumber(levels?.riskPoints));
 
   const scaleMetrics = useMemo(() => {
     const minPrice = singleTp
@@ -141,7 +146,7 @@ export const TradeLevelsScale = memo(function TradeLevelsScale({
           )
         </span>
         <span className="text-zinc-400 tabular-nums">
-          Range ${minPrice.toFixed(2)} – ${maxPrice.toFixed(2)}
+          Range ${safeFixed(minPrice)} – ${safeFixed(maxPrice)}
         </span>
       </div>
 
@@ -150,10 +155,10 @@ export const TradeLevelsScale = memo(function TradeLevelsScale({
         {/* Top directional end labels */}
         <div className="absolute top-0 left-0 right-0 flex items-center justify-between text-[10px] font-mono tabular-nums">
           <span className={markers[0].colorClass}>
-            {markers[0].label} ${markers[0].price.toFixed(2)}
+            {markers[0].label} ${safeFixed(markers[0].price)}
           </span>
           <span className={markers[markers.length - 1].colorClass}>
-            {markers[markers.length - 1].label} ${markers[markers.length - 1].price.toFixed(2)}
+            {markers[markers.length - 1].label} ${safeFixed(markers[markers.length - 1].price)}
           </span>
         </div>
 
@@ -214,11 +219,11 @@ export const TradeLevelsScale = memo(function TradeLevelsScale({
                 <span className={`font-semibold ${m.colorClass}`}>{m.label}</span>
               </span>
               <span className="text-right">
-                <span className="text-zinc-100 font-semibold">${m.price.toFixed(2)}</span>
+                <span className="text-zinc-100 font-semibold">${safeFixed(m.price)}</span>
                 {m.key !== 'SPOT' && (
                   <span className="block text-[10px] text-zinc-500">
                     {pctMove >= 0 ? '+' : ''}
-                    {pctMove.toFixed(2)}%
+                    {safeFixed(pctMove, 2, '0.00')}%
                   </span>
                 )}
               </span>
@@ -230,10 +235,10 @@ export const TradeLevelsScale = memo(function TradeLevelsScale({
       {/* Proportional Risk vs Reward Balance Bar */}
       <div className="space-y-1">
         <div className="flex items-center justify-between text-[10px] font-mono text-zinc-400 tabular-nums">
-          <span className="text-red-400">Risk Exposure (${levels.riskPoints.toFixed(2)})</span>
+          <span className="text-red-400">Risk Exposure (${safeFixed(riskPoints)})</span>
           <span className="text-emerald-400">
             {singleTp ? 'Target Reward up to TP' : 'Target Reward up to TP2'} ($
-            {totalReward.toFixed(2)} · {singleTp ? levels.rewardRiskRatio1 : levels.rewardRiskRatio2})
+            {safeFixed(totalReward)} · {singleTp ? levels?.rewardRiskRatio1 ?? '—' : levels?.rewardRiskRatio2 ?? '—'})
           </span>
         </div>
         <div className="h-1.5 w-full rounded-full overflow-hidden flex bg-[#181A20]">

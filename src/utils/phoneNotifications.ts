@@ -1,4 +1,5 @@
 import type { SureSignalEntry, SureSignalScanStatus, SureSignalStatus } from '../types/market.ts';
+import { fetchWithTimeout, safeFixed, safeNumber } from './format.ts';
 
 const NOTIFIED_IDS_KEY = 'leaders_notified_sure_signal_ids_v1';
 const BANNER_SEEN_IDS_KEY = 'leaders_banner_seen_sure_ids_v1';
@@ -247,7 +248,7 @@ export async function ensureWebPushSubscribed(): Promise<{
         return { subscribed: false };
       }
 
-      const keyRes = await fetch('/api/push/vapid-public-key');
+      const keyRes = await fetchWithTimeout('/api/push/vapid-public-key', {}, 10_000);
       if (!keyRes.ok) {
         return { subscribed: false };
       }
@@ -278,11 +279,15 @@ export async function ensureWebPushSubscribed(): Promise<{
         });
       }
 
-      const saveRes = await fetch('/api/push/subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subscription: sub.toJSON() }),
-      });
+      const saveRes = await fetchWithTimeout(
+        '/api/push/subscribe',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subscription: sub.toJSON() }),
+        },
+        10_000
+      );
 
       if (!saveRes.ok) {
         return { subscribed: false };
@@ -306,11 +311,15 @@ export async function unsubscribeWebPush(): Promise<void> {
     const reg = await getActiveServiceWorkerRegistration();
     const sub = await reg?.pushManager?.getSubscription();
     if (!sub) return;
-    await fetch('/api/push/unsubscribe', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ endpoint: sub.endpoint }),
-    }).catch(() => undefined);
+    await fetchWithTimeout(
+      '/api/push/unsubscribe',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ endpoint: sub.endpoint }),
+      },
+      10_000
+    ).catch(() => undefined);
     await sub.unsubscribe().catch(() => undefined);
   } catch {
     // Non-fatal cleanup error
@@ -327,11 +336,15 @@ export async function syncWebPushSubscriptionIfEnabled(): Promise<boolean> {
 
 async function sendServerTestWebPush(endpoint?: string): Promise<boolean> {
   try {
-    const res = await fetch('/api/push/test', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(endpoint ? { endpoint } : {}),
-    });
+    const res = await fetchWithTimeout(
+      '/api/push/test',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(endpoint ? { endpoint } : {}),
+      },
+      10_000
+    );
     if (!res.ok) return false;
     const json = (await res.json().catch(() => ({}))) as { delivered?: boolean };
     return json.delivered === true;
@@ -655,10 +668,10 @@ export async function notifyNewSureSignalOnPhone(entry: SureSignalEntry): Promis
   }
 
   const arrow = entry.direction === 'BUY' ? '▲ SURE BUY' : '▼ SURE SELL';
-  const title = `${arrow} · XAU/USD $${entry.spotPrice.toFixed(2)}`;
-  const body = `Score ${entry.setupScore ?? entry.confidencePct}/100 · Entry $${entry.tradeLevels.referencePrice.toFixed(
-    2
-  )} · SL $${entry.tradeLevels.stopLoss.toFixed(2)} · TP $${entry.tradeLevels.takeProfit1.toFixed(2)}`;
+  const title = `${arrow} · XAU/USD $${safeFixed(entry.spotPrice)}`;
+  const body = `Score ${entry.setupScore ?? entry.confidencePct}/100 · Entry $${safeFixed(
+    entry.tradeLevels?.referencePrice ?? entry.spotPrice
+  )} · SL $${safeFixed(entry.tradeLevels?.stopLoss)} · TP $${safeFixed(entry.tradeLevels?.takeProfit1)}`;
 
   return showBrowserOrSwNotification(title, {
     body,
@@ -698,10 +711,10 @@ export async function notifySureSignalOutcomeOnPhone(entry: SureSignalEntry): Pr
     : isAmbiguous
     ? `AMBIGUOUS · SURE ${entry.direction} Closed`
     : `SL HIT · SURE ${entry.direction} Closed`;
-  const pnl = entry.pnlPoints ?? 0;
-  const pnlText = `${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} pts`;
-  const closeStr = entry.closePrice != null ? `$${entry.closePrice.toFixed(2)}` : `$${entry.spotPrice.toFixed(2)}`;
-  const body = `Entry $${entry.tradeLevels.referencePrice.toFixed(2)} → Close ${closeStr} (${pnlText}). Auto-scanner resumed for next SURE signal.`;
+  const pnl = safeNumber(entry.pnlPoints);
+  const pnlText = `${pnl >= 0 ? '+' : ''}${safeFixed(pnl, 2, '0.00')} pts`;
+  const closeStr = `$${safeFixed(entry.closePrice ?? entry.spotPrice)}`;
+  const body = `Entry $${safeFixed(entry.tradeLevels?.referencePrice ?? entry.spotPrice)} → Close ${closeStr} (${pnlText}). Auto-scanner resumed for next SURE signal.`;
 
   return showBrowserOrSwNotification(title, {
     body,

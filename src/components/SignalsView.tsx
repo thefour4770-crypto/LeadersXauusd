@@ -20,6 +20,7 @@ import {
   triggerJpgDownload,
   type RenderedJpgReport,
 } from '../utils/exportReportJpg.ts';
+import { safeFixed, safeLocaleDateTime } from '../utils/format.ts';
 import { getReportSignalConfidence } from '../utils/signalConfidence.ts';
 import { AnalysisResultView } from './AnalysisResultView.tsx';
 import { JpgPreviewModal } from './JpgPreviewModal.tsx';
@@ -53,7 +54,7 @@ export const SignalsView = memo(function SignalsView({
     const list = filter === 'ALL' ? reports : reports.filter((r) => r.classification === filter);
     return list.map((report) => ({
       report,
-      dt: new Date(report.createdAt).toLocaleString([], {
+      dt: safeLocaleDateTime(report.createdAt, {
         month: 'short',
         day: 'numeric',
         year: 'numeric',
@@ -61,7 +62,7 @@ export const SignalsView = memo(function SignalsView({
         minute: '2-digit',
       }),
       confidence: getReportSignalConfidence(report),
-      indicatorNamesJoined: report.selectedIndicators.map((i) => i.name).join(', '),
+      indicatorNamesJoined: (report.selectedIndicators ?? []).map((i) => i.name).join(', '),
     }));
   }, [reports, filter]);
 
@@ -255,16 +256,16 @@ export const SignalsView = memo(function SignalsView({
                       · {confidence.scorePct}% conf
                     </span>
                     <span className="text-xs font-mono tabular-nums text-zinc-200">
-                      · ${report.spotPrice.toFixed(2)}
+                      · ${safeFixed(report.spotPrice)}
                     </span>
                     <span className="text-[11px] font-mono text-zinc-400">· {dt}</span>
                   </div>
 
                   <div className="text-xs font-mono text-zinc-300 truncate">
-                    Timeframes: {report.selectedTimeframes.join(', ')} · {report.freshness}
+                    Timeframes: {(report.selectedTimeframes ?? []).join(', ')} · {report.freshness}
                     {report.tradeLevels && (
                       <span className="text-zinc-200">
-                        {' '}· SL ${report.tradeLevels.stopLoss.toFixed(2)} · TP ${report.tradeLevels.takeProfit1.toFixed(2)} ({report.tradeLevels.rewardRiskRatio1})
+                        {' '}· SL ${safeFixed(report.tradeLevels.stopLoss)} · TP ${safeFixed(report.tradeLevels.takeProfit1)} ({report.tradeLevels.rewardRiskRatio1})
                       </span>
                     )}
                   </div>
