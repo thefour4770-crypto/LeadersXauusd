@@ -4,6 +4,7 @@ import {
   __resetMarketDataCachesForTest,
   fetchPureFuturesCandles,
 } from '../server/marketData.ts';
+import { fetchStrategyDatasets } from '../server/analyzer.ts';
 
 function buildValidYahooPayload(nowSec: number, count = 45) {
   const timestamps: number[] = [];
@@ -233,6 +234,97 @@ test('fetchPureFuturesCandles drops unfinished delayed GC=F 5m stub bar whose cl
     assert.equal(ds.candles[ds.candles.length - 1].time, lastClosed5mStart);
     assert.equal(ds.candles[ds.candles.length - 1].volume, 500);
   } finally {
+    globalThis.fetch = origFetch;
+    __resetMarketDataCachesForTest();
+  }
+});
+
+test('fetchStrategyDatasets switches cleanly to OANDA:XAUUSD Spot OHLC across 1H/15m/5m/1m when GC=F bars are stale on a holiday', async () => {
+  __resetMarketDataCachesForTest();
+  const origFetch = globalThis.fetch;
+  const origWebSocket = globalThis.WebSocket;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const staleAnchorSec = nowSec - 6 * 3_600; // 6h stale COMEX GC=F bars
+
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.includes('finance.yahoo.com')) {
+      const intervalMatch = url.match(/interval=([^&]+)/);
+      const iv = intervalMatch?.[1] ?? '15m';
+      const step = iv === '1m' ? 60 : iv === '5m' ? 300 : iv === '1h' ? 3600 : 900;
+      const start = Math.floor(staleAnchorSec / step) * step - 45 * step;
+      const timestamps: number[] = [];
+      const open: number[] = [];
+      const high: number[] = [];
+      const low: number[] = [];
+      const close: number[] = [];
+      const volume: number[] = [];
+      for (let i = 0; i < 45; i++) {
+        timestamps.push(start + i * step);
+        open.push(3620);
+        high.push(3622);
+        low.push(3619);
+        close.push(3620.4);
+        volume.push(200);
+      }
+      return new Response(
+        JSON.stringify({
+          chart: {
+            error: null,
+            result: [
+              {
+                meta: { symbol: 'GC=F', regularMarketTime: nowSec, dataGranularity: iv },
+                timestamp: timestamps,
+                indicators: { quote: [{ open, high, low, close, volume }] },
+              },
+            ],
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      );
+    }
+    throw new Error(`Unexpected fetch URL in test: ${url}`);
+  }) as typeof fetch;
+
+  class MockTradingViewWebSocket {
+    onopen: (() => void) | null = null;
+    onmessage: ((ev: { data: string }) => void) | null = null;
+    onerror: (() => void) | null = null;
+    onclose: (() => void) | null = null;
+    constructor(_url: string, _opts?: unknown) {
+      queueMicrotask(() => this.onopen?.());
+    }
+    send(raw: string) {
+      if (!raw.includes('create_series')) return;
+      const match = raw.match(/"create_series","p":\["[^"]+","sds_1","s1","sds_sym_1","([^"]+)"/);
+      const tvIv = match?.[1] ?? '15';
+      const step = tvIv === '1' ? 60 : tvIv === '5' ? 300 : tvIv === '60' ? 3600 : 900;
+      const baseEnd = Math.floor(nowSec / step) * step;
+      const series = Array.from({ length: 45 }, (_, idx) => {
+        const t = baseEnd - (44 - idx) * step;
+        return { v: [t, 3561, 3563, 3560, 3562, 120 + idx] };
+      });
+      const updateMsg = JSON.stringify({ m: 'timescale_update', p: ['cs', { sds_1: { s: series } }] });
+      const doneMsg = JSON.stringify({ m: 'series_completed', p: ['cs', 'sds_1'] });
+      queueMicrotask(() => {
+        this.onmessage?.({ data: `~m~${updateMsg.length}~m~${updateMsg}~m~${doneMsg.length}~m~${doneMsg}` });
+      });
+    }
+    close() {}
+  }
+
+  globalThis.WebSocket = MockTradingViewWebSocket as unknown as typeof WebSocket;
+
+  try {
+    const datasets = await fetchStrategyDatasets();
+    assert.equal(datasets.tf1H.candleSource, 'OANDA:XAUUSD Spot OHLC Stream');
+    assert.equal(datasets.tf15m.candleSource, 'OANDA:XAUUSD Spot OHLC Stream');
+    assert.equal(datasets.tf5m.candleSource, 'OANDA:XAUUSD Spot OHLC Stream');
+    assert.equal(datasets.tf1m.candleSource, 'OANDA:XAUUSD Spot OHLC Stream');
+    assert.ok(nowSec - datasets.tf1H.candles[datasets.tf1H.candles.length - 1].time <= 3_600);
+    assert.ok(nowSec - datasets.tf1m.candles[datasets.tf1m.candles.length - 1].time <= 120);
+  } finally {
+    globalThis.WebSocket = origWebSocket;
     globalThis.fetch = origFetch;
     __resetMarketDataCachesForTest();
   }

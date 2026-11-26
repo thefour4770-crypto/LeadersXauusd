@@ -1,5 +1,2045 @@
 [
   {
+    "id": "5bfc6fea-01c6-4636-ad2a-0191310e598c",
+    "createdAt": "2026-11-26T13:00:22.525Z",
+    "marketDataTimestamp": 1795698022303,
+    "freshness": "LIVE",
+    "spotPrice": 3570.36,
+    "spotBid": 3570.041,
+    "spotAsk": 3570.679,
+    "spotSource": "Swissquote Spot XAU/USD BBO",
+    "candleSource": "OANDA:XAUUSD Spot OHLC Stream",
+    "classification": "HOLD",
+    "combinedScore": 0.24,
+    "signalConfidence": {
+      "scorePct": 30,
+      "tier": "LOW",
+      "agreeingVotes": 14,
+      "opposingVotes": 18,
+      "neutralVotes": 14,
+      "totalVotes": 32,
+      "buyVotes": 16,
+      "sellVotes": 2,
+      "holdVotes": 14,
+      "alignedTimeframes": 3,
+      "totalTimeframes": 4,
+      "summary": "HOLD selected with 30% directional conviction (16 BUY · 14 HOLD · 2 SELL across 4 timeframe(s), strong BUY lean). Blocked by 1H Major Trend Established (ADX >= 18), 15M Market Structure Agreement with 1H, 1M Closed-Candle Final Confirmation, Risk Management & Single TP (>= 1:1.5 R:R), Setup Quality Score (>= 75/100)."
+    },
+    "selectedTimeframes": [
+      "1m",
+      "5m",
+      "15m",
+      "1H"
+    ],
+    "selectedIndicators": [
+      {
+        "id": "ema",
+        "name": "EMA",
+        "category": "TREND",
+        "params": {
+          "period": 20
+        }
+      },
+      {
+        "id": "sma",
+        "name": "SMA",
+        "category": "TREND",
+        "params": {
+          "period": 50
+        }
+      },
+      {
+        "id": "supertrend",
+        "name": "Supertrend",
+        "category": "TREND",
+        "params": {
+          "period": 10,
+          "multiplier": 3
+        }
+      },
+      {
+        "id": "adx",
+        "name": "ADX",
+        "category": "TREND",
+        "params": {
+          "period": 14
+        }
+      },
+      {
+        "id": "dmi",
+        "name": "DMI",
+        "category": "TREND",
+        "params": {
+          "period": 14
+        }
+      },
+      {
+        "id": "rsi",
+        "name": "RSI",
+        "category": "MOMENTUM",
+        "params": {
+          "period": 14,
+          "overbought": 70,
+          "oversold": 30
+        }
+      },
+      {
+        "id": "macd",
+        "name": "MACD",
+        "category": "MOMENTUM",
+        "params": {
+          "fast": 12,
+          "slow": 26,
+          "signal": 9
+        }
+      },
+      {
+        "id": "bollinger_bands",
+        "name": "Bollinger Bands",
+        "category": "VOLATILITY",
+        "params": {
+          "period": 20,
+          "stdDev": 2
+        }
+      },
+      {
+        "id": "atr",
+        "name": "ATR",
+        "category": "VOLATILITY",
+        "params": {
+          "period": 14
+        }
+      },
+      {
+        "id": "volume",
+        "name": "Volume",
+        "category": "VOLUME",
+        "params": {
+          "maPeriod": 20
+        }
+      },
+      {
+        "id": "obv",
+        "name": "OBV",
+        "category": "VOLUME",
+        "params": {
+          "emaPeriod": 20
+        }
+      }
+    ],
+    "timeframeAnalyses": [
+      {
+        "timeframe": "1m",
+        "classification": "BUY",
+        "confidencePct": 88,
+        "candleCount": 250,
+        "latestClose": 3570.36,
+        "latestTimestamp": 1795698022303,
+        "freshness": "LIVE",
+        "candleSource": "OANDA:XAUUSD Spot OHLC Stream + Live Swissquote Spot XAU/USD",
+        "volumeNote": "Real-time OANDA XAU/USD Spot OHLC with broker tick volume",
+        "combinedScore": 0.573,
+        "trendScore": 0.611,
+        "momentumScore": 0.775,
+        "volatilityState": "$1.72 (0.05%) (Expanding)",
+        "volumeState": "476 (1.15x avg)",
+        "supportLevels": [
+          3568.47,
+          3560.56,
+          3553.24
+        ],
+        "resistanceLevels": [
+          3572.88
+        ],
+        "indicatorResults": [
+          {
+            "id": "ema",
+            "name": "EMA (20)",
+            "category": "TREND",
+            "bias": "BUY",
+            "primaryValue": "$3568.01",
+            "secondaryValues": {
+              "vs Price": "+0.07%"
+            },
+            "explanation": "Price ($3570.36) trades above EMA(20) at $3568.01, reflecting upward trend alignment.",
+            "score": 0.85
+          },
+          {
+            "id": "sma",
+            "name": "SMA (50)",
+            "category": "TREND",
+            "bias": "BUY",
+            "primaryValue": "$3568.62",
+            "secondaryValues": {
+              "vs Price": "+0.05%"
+            },
+            "explanation": "Spot close holds above SMA(50) baseline ($3568.62).",
+            "score": 0.45
+          },
+          {
+            "id": "supertrend",
+            "name": "Supertrend (10, 3)",
+            "category": "TREND",
+            "bias": "BUY",
+            "primaryValue": "$3563.46 (Bullish)",
+            "explanation": "Supertrend support floor active at $3563.46 below current price.",
+            "score": 0.9
+          },
+          {
+            "id": "adx",
+            "name": "ADX (14)",
+            "category": "TREND",
+            "bias": "BUY",
+            "primaryValue": "20.43",
+            "secondaryValues": {
+              "Regime": "Developing"
+            },
+            "explanation": "ADX at 20.4 confirms active trend strength with +DI leading.",
+            "score": 0.35
+          },
+          {
+            "id": "dmi",
+            "name": "DMI (14)",
+            "category": "TREND",
+            "bias": "BUY",
+            "primaryValue": "+DI 26.9 / -DI 22.3",
+            "explanation": "+DI (26.9) leads -DI (22.3), indicating net upward directional movement.",
+            "score": 0.75
+          },
+          {
+            "id": "rsi",
+            "name": "RSI (14)",
+            "category": "MOMENTUM",
+            "bias": "BUY",
+            "primaryValue": "58.71",
+            "secondaryValues": {
+              "Zone": "Neutral-Active"
+            },
+            "explanation": "RSI(14) at 58.7 reflects bullish momentum.",
+            "score": 0.65
+          },
+          {
+            "id": "macd",
+            "name": "MACD (12,26,9)",
+            "category": "MOMENTUM",
+            "bias": "BUY",
+            "primaryValue": "+0.27",
+            "secondaryValues": {
+              "MACD": "-0.42",
+              "Signal": "-0.70"
+            },
+            "explanation": "MACD (-0.42) sits above Signal (-0.70) with positive histogram (0.27).",
+            "score": 0.9
+          },
+          {
+            "id": "bollinger_bands",
+            "name": "Bollinger Bands (20, 2)",
+            "category": "VOLATILITY",
+            "bias": "BUY",
+            "primaryValue": "$3563.40 – $3573.21",
+            "secondaryValues": {
+              "Middle": "$3568.30",
+              "%B": "71.0%"
+            },
+            "explanation": "Price sits in the upper Bollinger half (Mid $3568.30, Band $3563.40–$3573.21).",
+            "score": 0.55
+          },
+          {
+            "id": "atr",
+            "name": "ATR (14)",
+            "category": "VOLATILITY",
+            "bias": "HOLD",
+            "primaryValue": "$1.72 (0.05%)",
+            "secondaryValues": {
+              "State": "Expanding"
+            },
+            "explanation": "Average True Range is $1.72 per bar (0.05% of spot), indicating moderate volatility.",
+            "score": 0
+          },
+          {
+            "id": "volume",
+            "name": "Volume (20)",
+            "category": "VOLUME",
+            "bias": "HOLD",
+            "primaryValue": "476 (1.15x avg)",
+            "volumeType": "EXCHANGE",
+            "explanation": "COMEX GC=F exchange volume is 1.15x its 20-bar average on a bullish bar.",
+            "score": 0
+          },
+          {
+            "id": "obv",
+            "name": "OBV",
+            "category": "VOLUME",
+            "bias": "BUY",
+            "primaryValue": "2,912",
+            "volumeType": "EXCHANGE",
+            "explanation": "OBV (2,912) tracks above its 20-EMA (644) using exchange volume.",
+            "score": 0.65
+          }
+        ],
+        "agreements": [
+          "Directional signals align upward (7 bullish vote(s), trend cluster deduplicated).",
+          "1 vote(s) currently register neutral/non-directional."
+        ],
+        "conflicts": [],
+        "summary": "1m aligns upward (score 0.57, 7 BUY vs 0 SELL)."
+      },
+      {
+        "timeframe": "5m",
+        "classification": "HOLD",
+        "confidencePct": 50,
+        "candleCount": 250,
+        "latestClose": 3570.36,
+        "latestTimestamp": 1795698022303,
+        "freshness": "LIVE",
+        "candleSource": "OANDA:XAUUSD Spot OHLC Stream + Live Swissquote Spot XAU/USD",
+        "volumeNote": "Real-time OANDA XAU/USD Spot OHLC with broker tick volume",
+        "combinedScore": 0.354,
+        "trendScore": 0.244,
+        "momentumScore": 0.45,
+        "volatilityState": "$4.36 (0.12%) (Contracting)",
+        "volumeState": "245 (0.14x avg)",
+        "supportLevels": [
+          3569.3,
+          3562.72,
+          3554.55
+        ],
+        "resistanceLevels": [
+          3571.89,
+          3579.14,
+          3598.74
+        ],
+        "indicatorResults": [
+          {
+            "id": "ema",
+            "name": "EMA (20)",
+            "category": "TREND",
+            "bias": "BUY",
+            "primaryValue": "$3568.06",
+            "secondaryValues": {
+              "vs Price": "+0.06%"
+            },
+            "explanation": "Price ($3570.36) trades above EMA(20) at $3568.06, reflecting upward trend alignment.",
+            "score": 0.85
+          },
+          {
+            "id": "sma",
+            "name": "SMA (50)",
+            "category": "TREND",
+            "bias": "BUY",
+            "primaryValue": "$3567.78",
+            "secondaryValues": {
+              "vs Price": "+0.07%"
+            },
+            "explanation": "Spot close holds above SMA(50) baseline ($3567.78).",
+            "score": 0.45
+          },
+          {
+            "id": "supertrend",
+            "name": "Supertrend (10, 3)",
+            "category": "TREND",
+            "bias": "BUY",
+            "primaryValue": "$3560.26 (Bullish)",
+            "explanation": "Supertrend support floor active at $3560.26 below current price.",
+            "score": 0.9
+          },
+          {
+            "id": "adx",
+            "name": "ADX (14)",
+            "category": "TREND",
+            "bias": "HOLD",
+            "primaryValue": "13.60",
+            "secondaryValues": {
+              "Regime": "Weak / Range"
+            },
+            "explanation": "ADX at 13.6 indicates weak directional trend strength (ranging conditions).",
+            "score": 0
+          },
+          {
+            "id": "dmi",
+            "name": "DMI (14)",
+            "category": "TREND",
+            "bias": "HOLD",
+            "primaryValue": "+DI 21.0 / -DI 19.3",
+            "explanation": "Directional buyers (+DI 21.0) and sellers (-DI 19.3) are nearly balanced.",
+            "score": 0
+          },
+          {
+            "id": "rsi",
+            "name": "RSI (14)",
+            "category": "MOMENTUM",
+            "bias": "HOLD",
+            "primaryValue": "54.05",
+            "secondaryValues": {
+              "Zone": "Neutral-Active"
+            },
+            "explanation": "RSI(14) at 54.0 reflects balanced momentum.",
+            "score": 0
+          },
+          {
+            "id": "macd",
+            "name": "MACD (12,26,9)",
+            "category": "MOMENTUM",
+            "bias": "BUY",
+            "primaryValue": "+0.01",
+            "secondaryValues": {
+              "MACD": "0.64",
+              "Signal": "0.63"
+            },
+            "explanation": "MACD (0.64) sits above Signal (0.63) with positive histogram (0.01).",
+            "score": 0.9
+          },
+          {
+            "id": "bollinger_bands",
+            "name": "Bollinger Bands (20, 2)",
+            "category": "VOLATILITY",
+            "bias": "BUY",
+            "primaryValue": "$3563.71 – $3573.04",
+            "secondaryValues": {
+              "Middle": "$3568.37",
+              "%B": "71.3%"
+            },
+            "explanation": "Price sits in the upper Bollinger half (Mid $3568.37, Band $3563.71–$3573.04).",
+            "score": 0.55
+          },
+          {
+            "id": "atr",
+            "name": "ATR (14)",
+            "category": "VOLATILITY",
+            "bias": "HOLD",
+            "primaryValue": "$4.36 (0.12%)",
+            "secondaryValues": {
+              "State": "Contracting"
+            },
+            "explanation": "Average True Range is $4.36 per bar (0.12% of spot), indicating moderate volatility.",
+            "score": 0
+          },
+          {
+            "id": "volume",
+            "name": "Volume (20)",
+            "category": "VOLUME",
+            "bias": "HOLD",
+            "primaryValue": "245 (0.14x avg)",
+            "volumeType": "EXCHANGE",
+            "explanation": "COMEX GC=F exchange volume is 0.14x its 20-bar average on a bullish bar.",
+            "score": 0
+          },
+          {
+            "id": "obv",
+            "name": "OBV",
+            "category": "VOLUME",
+            "bias": "BUY",
+            "primaryValue": "108,605",
+            "volumeType": "EXCHANGE",
+            "explanation": "OBV (108,605) tracks above its 20-EMA (105,816) using exchange volume.",
+            "score": 0.65
+          }
+        ],
+        "agreements": [
+          "Directional signals align upward (4 bullish vote(s), trend cluster deduplicated).",
+          "4 vote(s) currently register neutral/non-directional."
+        ],
+        "conflicts": [
+          "ADX(14) at 13.6 (< 18) flags low-conviction / choppy range conditions."
+        ],
+        "summary": "5m filtered to HOLD (score 0.35)."
+      },
+      {
+        "timeframe": "15m",
+        "classification": "HOLD",
+        "confidencePct": 13,
+        "candleCount": 250,
+        "latestClose": 3570.36,
+        "latestTimestamp": 1795698022303,
+        "freshness": "LIVE",
+        "candleSource": "OANDA:XAUUSD Spot OHLC Stream + Live Swissquote Spot XAU/USD",
+        "volumeNote": "Real-time OANDA XAU/USD Spot OHLC with broker tick volume",
+        "combinedScore": 0.065,
+        "trendScore": -0.094,
+        "momentumScore": 0.45,
+        "volatilityState": "$7.82 (0.22%) (Contracting)",
+        "volumeState": "441 (0.07x avg)",
+        "supportLevels": [
+          3568.58,
+          3561.46,
+          3554.55
+        ],
+        "resistanceLevels": [
+          3575,
+          3584.05,
+          3599.97
+        ],
+        "indicatorResults": [
+          {
+            "id": "ema",
+            "name": "EMA (20)",
+            "category": "TREND",
+            "bias": "BUY",
+            "primaryValue": "$3568.58",
+            "secondaryValues": {
+              "vs Price": "+0.05%"
+            },
+            "explanation": "Price ($3570.36) trades above EMA(20) at $3568.58, reflecting upward trend alignment.",
+            "score": 0.85
+          },
+          {
+            "id": "sma",
+            "name": "SMA (50)",
+            "category": "TREND",
+            "bias": "SELL",
+            "primaryValue": "$3574.40",
+            "secondaryValues": {
+              "vs Price": "-0.11%"
+            },
+            "explanation": "Spot close remains beneath SMA(50) baseline ($3574.40).",
+            "score": -0.8
+          },
+          {
+            "id": "supertrend",
+            "name": "Supertrend (10, 3)",
+            "category": "TREND",
+            "bias": "SELL",
+            "primaryValue": "$3581.28 (Bearish)",
+            "explanation": "Supertrend resistance ceiling active at $3581.28 above current price.",
+            "score": -0.9
+          },
+          {
+            "id": "adx",
+            "name": "ADX (14)",
+            "category": "TREND",
+            "bias": "HOLD",
+            "primaryValue": "12.04",
+            "secondaryValues": {
+              "Regime": "Weak / Range"
+            },
+            "explanation": "ADX at 12.0 indicates weak directional trend strength (ranging conditions).",
+            "score": 0
+          },
+          {
+            "id": "dmi",
+            "name": "DMI (14)",
+            "category": "TREND",
+            "bias": "HOLD",
+            "primaryValue": "+DI 17.9 / -DI 20.8",
+            "explanation": "Directional buyers (+DI 17.9) and sellers (-DI 20.8) are nearly balanced.",
+            "score": 0
+          },
+          {
+            "id": "rsi",
+            "name": "RSI (14)",
+            "category": "MOMENTUM",
+            "bias": "HOLD",
+            "primaryValue": "51.55",
+            "secondaryValues": {
+              "Zone": "Neutral-Active"
+            },
+            "explanation": "RSI(14) at 51.6 reflects balanced momentum.",
+            "score": 0
+          },
+          {
+            "id": "macd",
+            "name": "MACD (12,26,9)",
+            "category": "MOMENTUM",
+            "bias": "BUY",
+            "primaryValue": "+0.82",
+            "secondaryValues": {
+              "MACD": "-0.98",
+              "Signal": "-1.80"
+            },
+            "explanation": "MACD (-0.98) sits above Signal (-1.80) with positive histogram (0.82).",
+            "score": 0.9
+          },
+          {
+            "id": "bollinger_bands",
+            "name": "Bollinger Bands (20, 2)",
+            "category": "VOLATILITY",
+            "bias": "BUY",
+            "primaryValue": "$3557.28 – $3578.23",
+            "secondaryValues": {
+              "Middle": "$3567.75",
+              "%B": "62.4%"
+            },
+            "explanation": "Price sits in the upper Bollinger half (Mid $3567.75, Band $3557.28–$3578.23).",
+            "score": 0.55
+          },
+          {
+            "id": "atr",
+            "name": "ATR (14)",
+            "category": "VOLATILITY",
+            "bias": "HOLD",
+            "primaryValue": "$7.82 (0.22%)",
+            "secondaryValues": {
+              "State": "Contracting"
+            },
+            "explanation": "Average True Range is $7.82 per bar (0.22% of spot), indicating moderate volatility.",
+            "score": 0
+          },
+          {
+            "id": "volume",
+            "name": "Volume (20)",
+            "category": "VOLUME",
+            "bias": "HOLD",
+            "primaryValue": "441 (0.07x avg)",
+            "volumeType": "EXCHANGE",
+            "explanation": "COMEX GC=F exchange volume is 0.07x its 20-bar average on a bullish bar.",
+            "score": 0
+          },
+          {
+            "id": "obv",
+            "name": "OBV",
+            "category": "VOLUME",
+            "bias": "SELL",
+            "primaryValue": "-75,461",
+            "volumeType": "EXCHANGE",
+            "explanation": "OBV (-75,461) tracks below its 20-EMA (-71,131) using exchange volume.",
+            "score": -0.65
+          }
+        ],
+        "agreements": [
+          "5 vote(s) currently register neutral/non-directional."
+        ],
+        "conflicts": [
+          "Split readings: 2 bullish vs 1 bearish votes.",
+          "ADX(14) at 12.0 (< 18) flags low-conviction / choppy range conditions."
+        ],
+        "summary": "15m filtered to HOLD (score 0.06)."
+      },
+      {
+        "timeframe": "1H",
+        "classification": "HOLD",
+        "confidencePct": 25,
+        "candleCount": 250,
+        "latestClose": 3570.36,
+        "latestTimestamp": 1795698022303,
+        "freshness": "LIVE",
+        "candleSource": "OANDA:XAUUSD Spot OHLC Stream + Live Swissquote Spot XAU/USD",
+        "volumeNote": "Real-time OANDA XAU/USD Spot OHLC with broker tick volume",
+        "combinedScore": 0.129,
+        "trendScore": 0.244,
+        "momentumScore": -0.45,
+        "volatilityState": "$21.62 (0.61%) (Contracting)",
+        "volumeState": "441 (0.01x avg)",
+        "supportLevels": [
+          3561.46,
+          3552.14,
+          3533.82
+        ],
+        "resistanceLevels": [
+          3575.29,
+          3586.14,
+          3595.29
+        ],
+        "indicatorResults": [
+          {
+            "id": "ema",
+            "name": "EMA (20)",
+            "category": "TREND",
+            "bias": "BUY",
+            "primaryValue": "$3562.82",
+            "secondaryValues": {
+              "vs Price": "+0.21%"
+            },
+            "explanation": "Price ($3570.36) trades above EMA(20) at $3562.82, reflecting upward trend alignment.",
+            "score": 0.85
+          },
+          {
+            "id": "sma",
+            "name": "SMA (50)",
+            "category": "TREND",
+            "bias": "BUY",
+            "primaryValue": "$3554.99",
+            "secondaryValues": {
+              "vs Price": "+0.43%"
+            },
+            "explanation": "Spot close holds above SMA(50) baseline ($3554.99).",
+            "score": 0.45
+          },
+          {
+            "id": "supertrend",
+            "name": "Supertrend (10, 3)",
+            "category": "TREND",
+            "bias": "BUY",
+            "primaryValue": "$3509.10 (Bullish)",
+            "explanation": "Supertrend support floor active at $3509.10 below current price.",
+            "score": 0.9
+          },
+          {
+            "id": "adx",
+            "name": "ADX (14)",
+            "category": "TREND",
+            "bias": "HOLD",
+            "primaryValue": "15.21",
+            "secondaryValues": {
+              "Regime": "Weak / Range"
+            },
+            "explanation": "ADX at 15.2 indicates weak directional trend strength (ranging conditions).",
+            "score": 0
+          },
+          {
+            "id": "dmi",
+            "name": "DMI (14)",
+            "category": "TREND",
+            "bias": "HOLD",
+            "primaryValue": "+DI 20.1 / -DI 19.5",
+            "explanation": "Directional buyers (+DI 20.1) and sellers (-DI 19.5) are nearly balanced.",
+            "score": 0
+          },
+          {
+            "id": "rsi",
+            "name": "RSI (14)",
+            "category": "MOMENTUM",
+            "bias": "HOLD",
+            "primaryValue": "52.98",
+            "secondaryValues": {
+              "Zone": "Neutral-Active"
+            },
+            "explanation": "RSI(14) at 53.0 reflects balanced momentum.",
+            "score": 0
+          },
+          {
+            "id": "macd",
+            "name": "MACD (12,26,9)",
+            "category": "MOMENTUM",
+            "bias": "SELL",
+            "primaryValue": "-0.00",
+            "secondaryValues": {
+              "MACD": "6.23",
+              "Signal": "6.23"
+            },
+            "explanation": "MACD (6.23) sits below Signal (6.23) with negative histogram (-0.00).",
+            "score": -0.9
+          },
+          {
+            "id": "bollinger_bands",
+            "name": "Bollinger Bands (20, 2)",
+            "category": "VOLATILITY",
+            "bias": "BUY",
+            "primaryValue": "$3532.04 – $3603.38",
+            "secondaryValues": {
+              "Middle": "$3567.71",
+              "%B": "53.7%"
+            },
+            "explanation": "Price sits in the upper Bollinger half (Mid $3567.71, Band $3532.04–$3603.38).",
+            "score": 0.55
+          },
+          {
+            "id": "atr",
+            "name": "ATR (14)",
+            "category": "VOLATILITY",
+            "bias": "HOLD",
+            "primaryValue": "$21.62 (0.61%)",
+            "secondaryValues": {
+              "State": "Contracting"
+            },
+            "explanation": "Average True Range is $21.62 per bar (0.61% of spot), indicating elevated volatility.",
+            "score": 0
+          },
+          {
+            "id": "volume",
+            "name": "Volume (20)",
+            "category": "VOLUME",
+            "bias": "HOLD",
+            "primaryValue": "441 (0.01x avg)",
+            "volumeType": "EXCHANGE",
+            "explanation": "COMEX GC=F exchange volume is 0.01x its 20-bar average on a bullish bar.",
+            "score": 0
+          },
+          {
+            "id": "obv",
+            "name": "OBV",
+            "category": "VOLUME",
+            "bias": "BUY",
+            "primaryValue": "-922,233",
+            "volumeType": "EXCHANGE",
+            "explanation": "OBV (-922,233) tracks above its 20-EMA (-995,394) using exchange volume.",
+            "score": 0.65
+          }
+        ],
+        "agreements": [
+          "4 vote(s) currently register neutral/non-directional."
+        ],
+        "conflicts": [
+          "Split readings: 3 bullish vs 1 bearish votes.",
+          "Trend cluster points upward while Momentum oscillators warn of cooling or pullback pressure.",
+          "ADX(14) at 15.2 (< 18) flags low-conviction / choppy range conditions."
+        ],
+        "summary": "1H filtered to HOLD (score 0.13)."
+      }
+    ],
+    "combinedMethodology": "Strict 4-timeframe analysis (1H trend -> 15M BOS/CHoCH structure -> 5M liquidity sweep & retest -> 1M closed-candle confirmation) across all 11 core indicators with EMA/SMA/Supertrend deduplicated into one Trend Cluster and a 100-point gate-enforced scoring model.",
+    "reasons": [
+      "Strict Strategy Action: NO TRADE — Setup Score 74/100 (WAIT).",
+      "1H Trend: 1H trend NEUTRAL (ST Bull, ADX 16.3 — awaiting clear aligned trend).",
+      "15M Structure: 15M structure (BULLISH) conflicts or lacks confirmation vs 1H (NEUTRAL).",
+      "5M Entry Setup: 5M BULLISH setup validated (Sweep:BULLISH_SWEEP, Retest:YES, ATR $4.43).",
+      "1M Closed Confirmation: 1M closed bar waiting (candle OK, EMA:NO, ST:NO, DMI:OK, Mom:OK, Vol:OK, Drift:OK).",
+      "Blocked By: 1H Major Trend Established (ADX >= 18) — 1H trend NEUTRAL (ST Bull, ADX 16.3 — awaiting clear aligned trend). | 15M Market Structure Agreement with 1H — 15M structure (BULLISH) conflicts or lacks confirmation vs 1H (NEUTRAL). | 1M Closed-Candle Final Confirmation — 1M closed bar waiting (candle OK, EMA:NO, ST:NO, DMI:OK, Mom:OK, Vol:OK, Drift:OK)."
+    ],
+    "agreements": [
+      "Market Data & Feed Integrity: Closed candles verified across 1H/15M/5M/1M; Spot spread $0.64.",
+      "5M Entry Setup & Volatility Regime: 5M BULLISH setup validated (Sweep:BULLISH_SWEEP, Retest:YES, ATR $4.43).",
+      "Volume/OBV & Momentum Non-Contradiction: Volume, OBV, RSI & MACD momentum support trade direction without exhaustion."
+    ],
+    "conflicts": [
+      "1H Major Trend Established (ADX >= 18) — 1H trend NEUTRAL (ST Bull, ADX 16.3 — awaiting clear aligned trend).",
+      "15M Market Structure Agreement with 1H — 15M structure (BULLISH) conflicts or lacks confirmation vs 1H (NEUTRAL).",
+      "1M Closed-Candle Final Confirmation — 1M closed bar waiting (candle OK, EMA:NO, ST:NO, DMI:OK, Mom:OK, Vol:OK, Drift:OK).",
+      "Risk Management & Single TP (>= 1:1.5 R:R) — No clear directional bias for stop/target sizing.",
+      "Setup Quality Score (>= 75/100) — Calculated score 74/100 (WAIT) vs 75/100 ANALYSIS threshold."
+    ],
+    "supportLevels": [
+      3569.3,
+      3568.58,
+      3568.47,
+      3562.72
+    ],
+    "resistanceLevels": [
+      3571.89,
+      3572.88,
+      3575,
+      3575.29
+    ],
+    "shortVsLongComparison": "1H major trend (NEUTRAL) vs 15M structure (BULLISH) — strict multi-timeframe alignment required before entry.",
+    "uncertaintyExplanation": "Setup score reflects technical alignment quality across strictly closed candles, not guaranteed win probability. Structural OHLC: Real-time OANDA Spot XAU/USD · Execution/Monitoring: Real-time Swissquote Spot XAU/USD BBO. Gold (XAU/USD) reacts rapidly to macro releases, USD yields, and liquidity shifts.",
+    "signalQualityChecks": [
+      {
+        "label": "Market Data & Feed Integrity",
+        "passed": true,
+        "detail": "Closed candles verified across 1H/15M/5M/1M; Spot spread $0.64."
+      },
+      {
+        "label": "1H Major Trend Established (ADX >= 18)",
+        "passed": false,
+        "detail": "1H trend NEUTRAL (ST Bull, ADX 16.3 — awaiting clear aligned trend)."
+      },
+      {
+        "label": "15M Market Structure Agreement with 1H",
+        "passed": false,
+        "detail": "15M structure (BULLISH) conflicts or lacks confirmation vs 1H (NEUTRAL)."
+      },
+      {
+        "label": "5M Entry Setup & Volatility Regime",
+        "passed": true,
+        "detail": "5M BULLISH setup validated (Sweep:BULLISH_SWEEP, Retest:YES, ATR $4.43)."
+      },
+      {
+        "label": "1M Closed-Candle Final Confirmation",
+        "passed": false,
+        "detail": "1M closed bar waiting (candle OK, EMA:NO, ST:NO, DMI:OK, Mom:OK, Vol:OK, Drift:OK)."
+      },
+      {
+        "label": "Volume/OBV & Momentum Non-Contradiction",
+        "passed": true,
+        "detail": "Volume, OBV, RSI & MACD momentum support trade direction without exhaustion."
+      },
+      {
+        "label": "Risk Management & Single TP (>= 1:1.5 R:R)",
+        "passed": false,
+        "detail": "No clear directional bias for stop/target sizing."
+      },
+      {
+        "label": "Setup Quality Score (>= 75/100)",
+        "passed": false,
+        "detail": "Calculated score 74/100 (WAIT) vs 75/100 ANALYSIS threshold."
+      }
+    ],
+    "strategyEvaluation": {
+      "mode": "ANALYSIS",
+      "action": "NO TRADE",
+      "direction": "NONE",
+      "totalScore": 74,
+      "scoreCategory": "WAIT",
+      "scoreBreakdown": [
+        {
+          "category": "1H Trend Confirmation",
+          "score": 7,
+          "maxScore": 15,
+          "detail": "1H trend NEUTRAL (ST Bull, ADX 16.3 — awaiting clear aligned trend).",
+          "passed": false
+        },
+        {
+          "category": "15M Market Structure",
+          "score": 12,
+          "maxScore": 20,
+          "detail": "15M structure (BULLISH) conflicts or lacks confirmation vs 1H (NEUTRAL).",
+          "passed": false
+        },
+        {
+          "category": "5M Entry Setup",
+          "score": 25,
+          "maxScore": 25,
+          "detail": "5M BULLISH setup validated (Sweep:BULLISH_SWEEP, Retest:YES, ATR $4.43).",
+          "passed": false
+        },
+        {
+          "category": "Liquidity Sweep & Retest",
+          "score": 15,
+          "maxScore": 15,
+          "detail": "Sweep: BULLISH_SWEEP · Retest: Confirmed",
+          "passed": false
+        },
+        {
+          "category": "1M Entry Confirmation",
+          "score": 11,
+          "maxScore": 15,
+          "detail": "1M closed bar waiting (candle OK, EMA:NO, ST:NO, DMI:OK, Mom:OK, Vol:OK, Drift:OK).",
+          "passed": false
+        },
+        {
+          "category": "Volume & OBV Confirmation",
+          "score": 5,
+          "maxScore": 5,
+          "detail": "5M Vol 1.61× (OBV aligned) · 1M Vol 2.16×",
+          "passed": false
+        },
+        {
+          "category": "Momentum Confirmation",
+          "score": 5,
+          "maxScore": 5,
+          "detail": "15M RSI 50.1 / MACD 0.71 · 1M RSI 54.1",
+          "passed": false
+        }
+      ],
+      "overallDirection": "NEUTRAL",
+      "trend1H": {
+        "bias": "NEUTRAL",
+        "emaAlignment": "Price > EMA9 > EMA21 (Bullish)",
+        "smaAlignment": "Price > SMA20 >= SMA50",
+        "supertrendDir": "BULLISH",
+        "adxValue": 16.3,
+        "plusDI": 20.3,
+        "minusDI": 19.7,
+        "summary": "1H trend NEUTRAL (ST Bull, ADX 16.3 — awaiting clear aligned trend)."
+      },
+      "structure15M": {
+        "direction": "BULLISH",
+        "bosDetected": "BULLISH",
+        "chochDetected": "NONE",
+        "lastSwingHigh": 3575,
+        "lastSwingLow": 3552.14,
+        "agreesWith1H": false,
+        "rsiValue": 50.1,
+        "macdHist": 0.71,
+        "bollingerContext": "Healthy Envelope (57%B)",
+        "summary": "15M structure (BULLISH) conflicts or lacks confirmation vs 1H (NEUTRAL)."
+      },
+      "setup5M": {
+        "direction": "BULLISH",
+        "liquiditySweep": "BULLISH_SWEEP",
+        "retestConfirmed": true,
+        "nearestSupport": 3567.99,
+        "nearestResistance": 3569.81,
+        "demandZone": null,
+        "supplyZone": null,
+        "volatilityRegime": "VALID",
+        "atrValue": 4.43,
+        "volumeConfirmed": true,
+        "obvAligned": true,
+        "setupComplete": true,
+        "summary": "5M BULLISH setup validated (Sweep:BULLISH_SWEEP, Retest:YES, ATR $4.43)."
+      },
+      "confirmation1M": {
+        "direction": "WAIT",
+        "closedCandleTime": 1795697940000,
+        "closedCandleBullish": true,
+        "emaAligned": false,
+        "supertrendAligned": false,
+        "rsiMomentumOk": true,
+        "macdMomentumOk": true,
+        "dmiAligned": true,
+        "volumeOk": true,
+        "confirmed": false,
+        "summary": "1M closed bar waiting (candle OK, EMA:NO, ST:NO, DMI:OK, Mom:OK, Vol:OK, Drift:OK)."
+      },
+      "all11Indicators": [
+        {
+          "id": "ema",
+          "name": "EMA Stack (9/21/50/200)",
+          "category": "TREND",
+          "bias": "BUY",
+          "primaryValue": "$3567.82",
+          "secondaryValues": {
+            "EMA9": "3568.23",
+            "EMA50": "3568.21",
+            "EMA200": "3559.68",
+            "ClusterWeight": "Unified Trend Cluster"
+          },
+          "explanation": "EMA 9/21/50/200 alignment (BUY) grouped into unified Trend Cluster to prevent duplicate confidence inflation.",
+          "score": 0.5
+        },
+        {
+          "id": "sma",
+          "name": "SMA Stack (20/50/200)",
+          "category": "TREND",
+          "bias": "BUY",
+          "primaryValue": "$3567.84",
+          "secondaryValues": {
+            "SMA20": "3568.09",
+            "SMA200": "3573.41",
+            "ClusterWeight": "Unified Trend Cluster"
+          },
+          "explanation": "SMA 20/50/200 baseline trend (BUY), deduplicated alongside EMA & Supertrend.",
+          "score": 0.4
+        },
+        {
+          "id": "supertrend",
+          "name": "Supertrend (10, 3)",
+          "category": "TREND",
+          "bias": "BUY",
+          "primaryValue": "$3560.26 (Bull)",
+          "secondaryValues": {
+            "Direction": "BULLISH"
+          },
+          "explanation": "ATR trailing band indicates bullish trend posture.",
+          "score": 1
+        },
+        {
+          "id": "adx",
+          "name": "ADX (14)",
+          "category": "TREND",
+          "bias": "HOLD",
+          "primaryValue": "14.3",
+          "secondaryValues": {
+            "Strength": "Weak/Chop"
+          },
+          "explanation": "Measures trend intensity (14.3), non-directional below 20.",
+          "score": 0
+        },
+        {
+          "id": "dmi",
+          "name": "DMI (+DI / -DI 14)",
+          "category": "TREND",
+          "bias": "HOLD",
+          "primaryValue": "+21.0 / -20.4",
+          "secondaryValues": {
+            "Spread": "+0.6"
+          },
+          "explanation": "Directional movement comparison (+DI vs -DI) indicates HOLD pressure.",
+          "score": 0
+        },
+        {
+          "id": "rsi",
+          "name": "RSI (14)",
+          "category": "MOMENTUM",
+          "bias": "HOLD",
+          "primaryValue": "52.1",
+          "secondaryValues": {
+            "Regime": "Balanced"
+          },
+          "explanation": "RSI(14) measures momentum balance and overbought/oversold exhaustion.",
+          "score": 0
+        },
+        {
+          "id": "macd",
+          "name": "MACD (12,26,9)",
+          "category": "MOMENTUM",
+          "bias": "SELL",
+          "primaryValue": "Hist -0.12",
+          "secondaryValues": {
+            "MACD": "0.51",
+            "Signal": "0.63"
+          },
+          "explanation": "MACD line vs signal & histogram slope reflect SELL momentum.",
+          "score": -0.75
+        },
+        {
+          "id": "bollinger_bands",
+          "name": "Bollinger Bands (20, 2)",
+          "category": "VOLATILITY",
+          "bias": "BUY",
+          "primaryValue": "Mid $3568.09 (%B 60%)",
+          "secondaryValues": {
+            "Upper": "3572.93",
+            "Lower": "3563.25"
+          },
+          "explanation": "Price %B position relative to upper/mid/lower volatility envelope.",
+          "score": 0.5
+        },
+        {
+          "id": "atr",
+          "name": "ATR (14)",
+          "category": "VOLATILITY",
+          "bias": "HOLD",
+          "primaryValue": "$4.43",
+          "secondaryValues": {
+            "Pct": "0.124%"
+          },
+          "explanation": "True-range volatility gauge used strictly for stop distance, targets, and regime checks.",
+          "score": 0
+        },
+        {
+          "id": "volume",
+          "name": "Volume (vs 20-MA)",
+          "category": "VOLUME",
+          "bias": "BUY",
+          "primaryValue": "1.61× Avg",
+          "secondaryValues": {
+            "Source": "Exchange"
+          },
+          "explanation": "Participation strength relative to 20-bar moving average (EXCHANGE).",
+          "score": 0.6,
+          "volumeType": "EXCHANGE"
+        },
+        {
+          "id": "obv",
+          "name": "OBV (Cumulative vs 20-EMA)",
+          "category": "VOLUME",
+          "bias": "BUY",
+          "primaryValue": "108,360",
+          "secondaryValues": {
+            "EMA20": "105,523"
+          },
+          "explanation": "Cumulative volume flow relative to its 20-EMA (EXCHANGE).",
+          "score": 0.65,
+          "volumeType": "EXCHANGE"
+        }
+      ],
+      "mandatoryGates": [
+        {
+          "label": "Market Data & Feed Integrity",
+          "passed": true,
+          "detail": "Closed candles verified across 1H/15M/5M/1M; Spot spread $0.64."
+        },
+        {
+          "label": "1H Major Trend Established (ADX >= 18)",
+          "passed": false,
+          "detail": "1H trend NEUTRAL (ST Bull, ADX 16.3 — awaiting clear aligned trend)."
+        },
+        {
+          "label": "15M Market Structure Agreement with 1H",
+          "passed": false,
+          "detail": "15M structure (BULLISH) conflicts or lacks confirmation vs 1H (NEUTRAL)."
+        },
+        {
+          "label": "5M Entry Setup & Volatility Regime",
+          "passed": true,
+          "detail": "5M BULLISH setup validated (Sweep:BULLISH_SWEEP, Retest:YES, ATR $4.43)."
+        },
+        {
+          "label": "1M Closed-Candle Final Confirmation",
+          "passed": false,
+          "detail": "1M closed bar waiting (candle OK, EMA:NO, ST:NO, DMI:OK, Mom:OK, Vol:OK, Drift:OK)."
+        },
+        {
+          "label": "Volume/OBV & Momentum Non-Contradiction",
+          "passed": true,
+          "detail": "Volume, OBV, RSI & MACD momentum support trade direction without exhaustion."
+        },
+        {
+          "label": "Risk Management & Single TP (>= 1:1.5 R:R)",
+          "passed": false,
+          "detail": "No clear directional bias for stop/target sizing."
+        },
+        {
+          "label": "Setup Quality Score (>= 75/100)",
+          "passed": false,
+          "detail": "Calculated score 74/100 (WAIT) vs 75/100 ANALYSIS threshold."
+        }
+      ],
+      "confirmations": [
+        "Market Data & Feed Integrity: Closed candles verified across 1H/15M/5M/1M; Spot spread $0.64.",
+        "5M Entry Setup & Volatility Regime: 5M BULLISH setup validated (Sweep:BULLISH_SWEEP, Retest:YES, ATR $4.43).",
+        "Volume/OBV & Momentum Non-Contradiction: Volume, OBV, RSI & MACD momentum support trade direction without exhaustion."
+      ],
+      "blockers": [
+        "1H Major Trend Established (ADX >= 18) — 1H trend NEUTRAL (ST Bull, ADX 16.3 — awaiting clear aligned trend).",
+        "15M Market Structure Agreement with 1H — 15M structure (BULLISH) conflicts or lacks confirmation vs 1H (NEUTRAL).",
+        "1M Closed-Candle Final Confirmation — 1M closed bar waiting (candle OK, EMA:NO, ST:NO, DMI:OK, Mom:OK, Vol:OK, Drift:OK).",
+        "Risk Management & Single TP (>= 1:1.5 R:R) — No clear directional bias for stop/target sizing.",
+        "Setup Quality Score (>= 75/100) — Calculated score 74/100 (WAIT) vs 75/100 ANALYSIS threshold."
+      ],
+      "generatedAt": "2026-11-26T13:00:22.525Z",
+      "validUntil": "2026-11-26T13:15:22.525Z",
+      "feedIntegrity": {
+        "valid": true,
+        "spotSource": "Swissquote Spot XAU/USD BBO",
+        "candleSource": "OANDA:XAUUSD Spot OHLC Stream",
+        "priceBasis": "Structural OHLC: Real-time OANDA Spot XAU/USD · Execution/Monitoring: Real-time Swissquote Spot XAU/USD BBO",
+        "spotPrice": 3570.36,
+        "futuresPrice": null,
+        "basisDiffUsd": null,
+        "basisDiffPct": null,
+        "spreadUsd": 0.638,
+        "spreadAcceptable": true,
+        "staleFeeds": [],
+        "ohlcErrors": [],
+        "gapWarnings": [],
+        "closedCandlesVerified": true,
+        "blockingReasons": []
+      },
+      "newsProtection": {
+        "status": "CLEAR",
+        "warningActive": false,
+        "blocked": false,
+        "safeFallbackActive": false,
+        "reasonCode": "NONE",
+        "headline": "NO IMMINENT HIGH-IMPACT USD NEWS",
+        "subtext": "Next USD High-Impact event: ISM Manufacturing PMI on Tuesday, December 1 at 8:30 PM IST.",
+        "activeEvent": null,
+        "upcomingEvent": {
+          "id": "tv-1001650049604",
+          "title": "ISM Manufacturing PMI",
+          "currency": "USD",
+          "impact": "HIGH",
+          "timestampMs": 1796137200000,
+          "isoUtc": "2026-12-01T15:00:00.000Z",
+          "istDateKey": "2026-12-01",
+          "istDateLabel": "Tuesday, December 1",
+          "istYear": "2026",
+          "istTimeLabel": "8:30 PM",
+          "actual": null,
+          "forecast": "55.2",
+          "previous": "55.5",
+          "source": "TradingView Calendar"
+        },
+        "minutesToEvent": 7320,
+        "minutesSinceEvent": null,
+        "marketStability": {
+          "quoteLive": true,
+          "spreadOk": true,
+          "spreadUsd": 0.638,
+          "volatilityOk": true,
+          "volatilityDetail": "Volatility and spread normalized"
+        },
+        "feedStatus": "LIVE",
+        "dataStatusWarning": null,
+        "evaluatedAt": "2026-11-26T13:00:22.525Z",
+        "config": {
+          "warningLeadMinutes": 60,
+          "preEventBlockMinutes": 15,
+          "minPostEventBlockMinutes": 15,
+          "maxPostEventBlockMinutes": 45,
+          "maxNewsCacheAgeMinutes": 60
+        }
+      }
+    },
+    "newsProtection": {
+      "status": "CLEAR",
+      "warningActive": false,
+      "blocked": false,
+      "safeFallbackActive": false,
+      "reasonCode": "NONE",
+      "headline": "NO IMMINENT HIGH-IMPACT USD NEWS",
+      "subtext": "Next USD High-Impact event: ISM Manufacturing PMI on Tuesday, December 1 at 8:30 PM IST.",
+      "activeEvent": null,
+      "upcomingEvent": {
+        "id": "tv-1001650049604",
+        "title": "ISM Manufacturing PMI",
+        "currency": "USD",
+        "impact": "HIGH",
+        "timestampMs": 1796137200000,
+        "isoUtc": "2026-12-01T15:00:00.000Z",
+        "istDateKey": "2026-12-01",
+        "istDateLabel": "Tuesday, December 1",
+        "istYear": "2026",
+        "istTimeLabel": "8:30 PM",
+        "actual": null,
+        "forecast": "55.2",
+        "previous": "55.5",
+        "source": "TradingView Calendar"
+      },
+      "minutesToEvent": 7320,
+      "minutesSinceEvent": null,
+      "marketStability": {
+        "quoteLive": true,
+        "spreadOk": true,
+        "spreadUsd": 0.638,
+        "volatilityOk": true,
+        "volatilityDetail": "Volatility and spread normalized"
+      },
+      "feedStatus": "LIVE",
+      "dataStatusWarning": null,
+      "evaluatedAt": "2026-11-26T13:00:22.525Z",
+      "config": {
+        "warningLeadMinutes": 60,
+        "preEventBlockMinutes": 15,
+        "minPostEventBlockMinutes": 15,
+        "maxPostEventBlockMinutes": 45,
+        "maxNewsCacheAgeMinutes": 60
+      }
+    }
+  },
+  {
+    "id": "653e8f7b-2507-4005-946f-ca0f1146ec37",
+    "createdAt": "2026-11-26T10:34:03.107Z",
+    "marketDataTimestamp": 1795689242862,
+    "freshness": "LIVE",
+    "spotPrice": 3562.555,
+    "spotBid": 3562.238,
+    "spotAsk": 3562.872,
+    "spotSource": "Swissquote Spot XAU/USD BBO",
+    "candleSource": "OANDA:XAUUSD Spot OHLC Stream",
+    "classification": "HOLD",
+    "combinedScore": -0.334,
+    "signalConfidence": {
+      "scorePct": 44,
+      "tier": "MODERATE",
+      "agreeingVotes": 1,
+      "opposingVotes": 7,
+      "neutralVotes": 1,
+      "totalVotes": 8,
+      "buyVotes": 1,
+      "sellVotes": 6,
+      "holdVotes": 1,
+      "alignedTimeframes": 0,
+      "totalTimeframes": 4,
+      "summary": "HOLD selected with 44% directional conviction (1 BUY · 1 HOLD · 6 SELL across 4 timeframe(s), strong SELL lean). Blocked by 15M Market Structure Agreement with 1H, 5M Entry Setup & Volatility Regime, 1M Closed-Candle Final Confirmation, Volume/OBV & Momentum Non-Contradiction, Setup Quality Score (>= 75/100)."
+    },
+    "selectedTimeframes": [
+      "1m",
+      "5m",
+      "15m",
+      "1H"
+    ],
+    "selectedIndicators": [
+      {
+        "id": "ema",
+        "name": "EMA",
+        "category": "TREND",
+        "params": {
+          "fast": 9,
+          "slow": 21
+        }
+      },
+      {
+        "id": "rsi",
+        "name": "RSI",
+        "category": "MOMENTUM",
+        "params": {
+          "period": 14
+        }
+      }
+    ],
+    "timeframeAnalyses": [
+      {
+        "timeframe": "1m",
+        "classification": "SELL",
+        "confidencePct": 100,
+        "candleCount": 250,
+        "latestClose": 3562.55,
+        "latestTimestamp": 1795689242862,
+        "freshness": "LIVE",
+        "candleSource": "OANDA:XAUUSD Spot OHLC Stream + Live Swissquote Spot XAU/USD",
+        "volumeNote": "Real-time OANDA XAU/USD Spot OHLC with broker tick volume",
+        "combinedScore": -0.75,
+        "trendScore": -0.85,
+        "momentumScore": -0.65,
+        "volatilityState": "Not selected",
+        "volumeState": "Exchange volume available (not selected)",
+        "supportLevels": [
+          3560.56
+        ],
+        "resistanceLevels": [
+          3563.86,
+          3570.31,
+          3577.16
+        ],
+        "indicatorResults": [
+          {
+            "id": "ema",
+            "name": "EMA (20)",
+            "category": "TREND",
+            "bias": "SELL",
+            "primaryValue": "$3563.20",
+            "secondaryValues": {
+              "vs Price": "-0.02%"
+            },
+            "explanation": "Price ($3562.55) trades below EMA(20) at $3563.20, reflecting downward pressure.",
+            "score": -0.85
+          },
+          {
+            "id": "rsi",
+            "name": "RSI (14)",
+            "category": "MOMENTUM",
+            "bias": "SELL",
+            "primaryValue": "42.58",
+            "secondaryValues": {
+              "Zone": "Neutral-Active"
+            },
+            "explanation": "RSI(14) at 42.6 reflects bearish momentum.",
+            "score": -0.65
+          }
+        ],
+        "agreements": [
+          "Directional signals align downward (2 bearish vote(s), trend cluster deduplicated)."
+        ],
+        "conflicts": [],
+        "summary": "1m aligns downward (score -0.75, 2 SELL vs 0 BUY)."
+      },
+      {
+        "timeframe": "5m",
+        "classification": "SELL",
+        "confidencePct": 100,
+        "candleCount": 250,
+        "latestClose": 3562.55,
+        "latestTimestamp": 1795689242862,
+        "freshness": "LIVE",
+        "candleSource": "OANDA:XAUUSD Spot OHLC Stream + Live Swissquote Spot XAU/USD",
+        "volumeNote": "Real-time OANDA XAU/USD Spot OHLC with broker tick volume",
+        "combinedScore": -0.75,
+        "trendScore": -0.85,
+        "momentumScore": -0.65,
+        "volatilityState": "Not selected",
+        "volumeState": "Exchange volume available (not selected)",
+        "supportLevels": [
+          3561.46,
+          3554.55
+        ],
+        "resistanceLevels": [
+          3570.31,
+          3577.19,
+          3583.72
+        ],
+        "indicatorResults": [
+          {
+            "id": "ema",
+            "name": "EMA (20)",
+            "category": "TREND",
+            "bias": "SELL",
+            "primaryValue": "$3568.74",
+            "secondaryValues": {
+              "vs Price": "-0.17%"
+            },
+            "explanation": "Price ($3562.55) trades below EMA(20) at $3568.74, reflecting downward pressure.",
+            "score": -0.85
+          },
+          {
+            "id": "rsi",
+            "name": "RSI (14)",
+            "category": "MOMENTUM",
+            "bias": "SELL",
+            "primaryValue": "34.86",
+            "secondaryValues": {
+              "Zone": "Neutral-Active"
+            },
+            "explanation": "RSI(14) at 34.9 reflects bearish momentum.",
+            "score": -0.65
+          }
+        ],
+        "agreements": [
+          "Directional signals align downward (2 bearish vote(s), trend cluster deduplicated)."
+        ],
+        "conflicts": [],
+        "summary": "5m aligns downward (score -0.75, 2 SELL vs 0 BUY)."
+      },
+      {
+        "timeframe": "15m",
+        "classification": "SELL",
+        "confidencePct": 100,
+        "candleCount": 250,
+        "latestClose": 3562.55,
+        "latestTimestamp": 1795689242862,
+        "freshness": "LIVE",
+        "candleSource": "OANDA:XAUUSD Spot OHLC Stream + Live Swissquote Spot XAU/USD",
+        "volumeNote": "Real-time OANDA XAU/USD Spot OHLC with broker tick volume",
+        "combinedScore": -0.75,
+        "trendScore": -0.85,
+        "momentumScore": -0.65,
+        "volatilityState": "Not selected",
+        "volumeState": "Exchange volume available (not selected)",
+        "supportLevels": [
+          3561.46,
+          3554.55,
+          3547.64
+        ],
+        "resistanceLevels": [
+          3564.23,
+          3575.29,
+          3584.05
+        ],
+        "indicatorResults": [
+          {
+            "id": "ema",
+            "name": "EMA (20)",
+            "category": "TREND",
+            "bias": "SELL",
+            "primaryValue": "$3570.91",
+            "secondaryValues": {
+              "vs Price": "-0.23%"
+            },
+            "explanation": "Price ($3562.55) trades below EMA(20) at $3570.91, reflecting downward pressure.",
+            "score": -0.85
+          },
+          {
+            "id": "rsi",
+            "name": "RSI (14)",
+            "category": "MOMENTUM",
+            "bias": "SELL",
+            "primaryValue": "41.75",
+            "secondaryValues": {
+              "Zone": "Neutral-Active"
+            },
+            "explanation": "RSI(14) at 41.8 reflects bearish momentum.",
+            "score": -0.65
+          }
+        ],
+        "agreements": [
+          "Directional signals align downward (2 bearish vote(s), trend cluster deduplicated)."
+        ],
+        "conflicts": [
+          "ADX(14) at 14.7 (< 18) flags low-conviction / choppy range conditions."
+        ],
+        "summary": "15m aligns downward (score -0.75, 2 SELL vs 0 BUY)."
+      },
+      {
+        "timeframe": "1H",
+        "classification": "BUY",
+        "confidencePct": 50,
+        "candleCount": 250,
+        "latestClose": 3562.55,
+        "latestTimestamp": 1795689242862,
+        "freshness": "LIVE",
+        "candleSource": "OANDA:XAUUSD Spot OHLC Stream + Live Swissquote Spot XAU/USD",
+        "volumeNote": "Real-time OANDA XAU/USD Spot OHLC with broker tick volume",
+        "combinedScore": 0.425,
+        "trendScore": 0.85,
+        "momentumScore": 0,
+        "volatilityState": "Not selected",
+        "volumeState": "Exchange volume available (not selected)",
+        "supportLevels": [
+          3561.46,
+          3551.34,
+          3533.82
+        ],
+        "resistanceLevels": [
+          3569.09,
+          3586.14,
+          3595.29
+        ],
+        "indicatorResults": [
+          {
+            "id": "ema",
+            "name": "EMA (20)",
+            "category": "TREND",
+            "bias": "BUY",
+            "primaryValue": "$3561.31",
+            "secondaryValues": {
+              "vs Price": "+0.03%"
+            },
+            "explanation": "Price ($3562.55) trades above EMA(20) at $3561.31, reflecting upward trend alignment.",
+            "score": 0.85
+          },
+          {
+            "id": "rsi",
+            "name": "RSI (14)",
+            "category": "MOMENTUM",
+            "bias": "HOLD",
+            "primaryValue": "50.88",
+            "secondaryValues": {
+              "Zone": "Neutral-Active"
+            },
+            "explanation": "RSI(14) at 50.9 reflects balanced momentum.",
+            "score": 0
+          }
+        ],
+        "agreements": [
+          "Directional signals align upward (1 bullish vote(s), trend cluster deduplicated).",
+          "1 vote(s) currently register neutral/non-directional."
+        ],
+        "conflicts": [],
+        "summary": "1H aligns upward (score 0.42, 1 BUY vs 0 SELL)."
+      }
+    ],
+    "combinedMethodology": "Strict 4-timeframe analysis (1H trend -> 15M BOS/CHoCH structure -> 5M liquidity sweep & retest -> 1M closed-candle confirmation) across all 11 core indicators with EMA/SMA/Supertrend deduplicated into one Trend Cluster and a 100-point gate-enforced scoring model.",
+    "reasons": [
+      "Strict Strategy Action: NO TRADE — Setup Score 34/100 (NO TRADE).",
+      "1H Trend: 1H major trend BULLISH: EMA/SMA/Supertrend cluster aligned, ADX 19.9, DMI (+22.1/-17.7).",
+      "15M Structure: 15M structure (BEARISH) conflicts or lacks confirmation vs 1H (BULLISH).",
+      "5M Entry Setup: 5M setup incomplete (NEUTRAL, Volatility:VALID, Sweep:NONE, Retest:YES).",
+      "1M Closed Confirmation: 1M closed bar waiting (closed candle direction unconfirmed, EMA:NO, ST:NO, DMI:NO, Mom:OK, Vol:OK, Drift:OK).",
+      "Blocked By: 15M Market Structure Agreement with 1H — 15M structure (BEARISH) conflicts or lacks confirmation vs 1H (BULLISH). | 5M Entry Setup & Volatility Regime — 5M setup incomplete (NEUTRAL, Volatility:VALID, Sweep:NONE, Retest:YES). | 1M Closed-Candle Final Confirmation — 1M closed bar waiting (closed candle direction unconfirmed, EMA:NO, ST:NO, DMI:NO, Mom:OK, Vol:OK, Drift:OK)."
+    ],
+    "agreements": [
+      "Market Data & Feed Integrity: Closed candles verified across 1H/15M/5M/1M; Spot spread $0.63.",
+      "1H Major Trend Established (ADX >= 18): 1H major trend BULLISH: EMA/SMA/Supertrend cluster aligned, ADX 19.9, DMI (+22.1/-17.7).",
+      "Risk Management & Single TP (>= 1:1.5 R:R): Entry $3562.55 · SL $3553.15 · Single TP $3577.19 (1:1.56 R:R, Spread $0.63)."
+    ],
+    "conflicts": [
+      "15M Market Structure Agreement with 1H — 15M structure (BEARISH) conflicts or lacks confirmation vs 1H (BULLISH).",
+      "5M Entry Setup & Volatility Regime — 5M setup incomplete (NEUTRAL, Volatility:VALID, Sweep:NONE, Retest:YES).",
+      "1M Closed-Candle Final Confirmation — 1M closed bar waiting (closed candle direction unconfirmed, EMA:NO, ST:NO, DMI:NO, Mom:OK, Vol:OK, Drift:OK).",
+      "Volume/OBV & Momentum Non-Contradiction — Blocked: 5M/1M OBV opposing · 15M RSI 41.1 outside range · 15M MACD hist -0.77 opposing.",
+      "Setup Quality Score (>= 75/100) — Calculated score 34/100 (NO TRADE) vs 75/100 ANALYSIS threshold."
+    ],
+    "supportLevels": [
+      3561.46,
+      3560.56,
+      3554.55,
+      3551.34
+    ],
+    "resistanceLevels": [
+      3563.86,
+      3564.23,
+      3569.09,
+      3570.31
+    ],
+    "shortVsLongComparison": "1H major trend (BULLISH) vs 15M structure (BEARISH) — strict multi-timeframe alignment required before entry.",
+    "uncertaintyExplanation": "Setup score reflects technical alignment quality across strictly closed candles, not guaranteed win probability. Structural OHLC: Real-time OANDA Spot XAU/USD · Execution/Monitoring: Real-time Swissquote Spot XAU/USD BBO. Gold (XAU/USD) reacts rapidly to macro releases, USD yields, and liquidity shifts.",
+    "signalQualityChecks": [
+      {
+        "label": "Market Data & Feed Integrity",
+        "passed": true,
+        "detail": "Closed candles verified across 1H/15M/5M/1M; Spot spread $0.63."
+      },
+      {
+        "label": "1H Major Trend Established (ADX >= 18)",
+        "passed": true,
+        "detail": "1H major trend BULLISH: EMA/SMA/Supertrend cluster aligned, ADX 19.9, DMI (+22.1/-17.7)."
+      },
+      {
+        "label": "15M Market Structure Agreement with 1H",
+        "passed": false,
+        "detail": "15M structure (BEARISH) conflicts or lacks confirmation vs 1H (BULLISH)."
+      },
+      {
+        "label": "5M Entry Setup & Volatility Regime",
+        "passed": false,
+        "detail": "5M setup incomplete (NEUTRAL, Volatility:VALID, Sweep:NONE, Retest:YES)."
+      },
+      {
+        "label": "1M Closed-Candle Final Confirmation",
+        "passed": false,
+        "detail": "1M closed bar waiting (closed candle direction unconfirmed, EMA:NO, ST:NO, DMI:NO, Mom:OK, Vol:OK, Drift:OK)."
+      },
+      {
+        "label": "Volume/OBV & Momentum Non-Contradiction",
+        "passed": false,
+        "detail": "Blocked: 5M/1M OBV opposing · 15M RSI 41.1 outside range · 15M MACD hist -0.77 opposing."
+      },
+      {
+        "label": "Risk Management & Single TP (>= 1:1.5 R:R)",
+        "passed": true,
+        "detail": "Entry $3562.55 · SL $3553.15 · Single TP $3577.19 (1:1.56 R:R, Spread $0.63)."
+      },
+      {
+        "label": "Setup Quality Score (>= 75/100)",
+        "passed": false,
+        "detail": "Calculated score 34/100 (NO TRADE) vs 75/100 ANALYSIS threshold."
+      }
+    ],
+    "strategyEvaluation": {
+      "mode": "ANALYSIS",
+      "action": "NO TRADE",
+      "direction": "NONE",
+      "totalScore": 34,
+      "scoreCategory": "NO TRADE",
+      "scoreBreakdown": [
+        {
+          "category": "1H Trend Confirmation",
+          "score": 12,
+          "maxScore": 15,
+          "detail": "1H major trend BULLISH: EMA/SMA/Supertrend cluster aligned, ADX 19.9, DMI (+22.1/-17.7).",
+          "passed": true
+        },
+        {
+          "category": "15M Market Structure",
+          "score": 4,
+          "maxScore": 20,
+          "detail": "15M structure (BEARISH) conflicts or lacks confirmation vs 1H (BULLISH).",
+          "passed": false
+        },
+        {
+          "category": "5M Entry Setup",
+          "score": 10,
+          "maxScore": 25,
+          "detail": "5M setup incomplete (NEUTRAL, Volatility:VALID, Sweep:NONE, Retest:YES).",
+          "passed": false
+        },
+        {
+          "category": "Liquidity Sweep & Retest",
+          "score": 0,
+          "maxScore": 15,
+          "detail": "Sweep: NONE · Retest: Confirmed",
+          "passed": true
+        },
+        {
+          "category": "1M Entry Confirmation",
+          "score": 5,
+          "maxScore": 15,
+          "detail": "1M closed bar waiting (closed candle direction unconfirmed, EMA:NO, ST:NO, DMI:NO, Mom:OK, Vol:OK, Drift:OK).",
+          "passed": false
+        },
+        {
+          "category": "Volume & OBV Confirmation",
+          "score": 1,
+          "maxScore": 5,
+          "detail": "5M Vol 0.72× (OBV flat/opposing) · 1M Vol 1.07×",
+          "passed": false
+        },
+        {
+          "category": "Momentum Confirmation",
+          "score": 2,
+          "maxScore": 5,
+          "detail": "15M RSI 41.1 / MACD -0.77 · 1M RSI 40.9",
+          "passed": false
+        }
+      ],
+      "overallDirection": "BULLISH",
+      "trend1H": {
+        "bias": "BULLISH",
+        "emaAlignment": "Price > EMA9 > EMA21 (Bullish)",
+        "smaAlignment": "Mixed/Flat",
+        "supertrendDir": "BULLISH",
+        "adxValue": 19.9,
+        "plusDI": 22.1,
+        "minusDI": 17.7,
+        "summary": "1H major trend BULLISH: EMA/SMA/Supertrend cluster aligned, ADX 19.9, DMI (+22.1/-17.7)."
+      },
+      "structure15M": {
+        "direction": "BEARISH",
+        "bosDetected": "BEARISH",
+        "chochDetected": "NONE",
+        "lastSwingHigh": 3575.32,
+        "lastSwingLow": 3562.41,
+        "agreesWith1H": false,
+        "rsiValue": 41.1,
+        "macdHist": -0.77,
+        "bollingerContext": "Healthy Envelope (10%B)",
+        "summary": "15M structure (BEARISH) conflicts or lacks confirmation vs 1H (BULLISH)."
+      },
+      "setup5M": {
+        "direction": "NEUTRAL",
+        "liquiditySweep": "NONE",
+        "retestConfirmed": true,
+        "nearestSupport": 3554.55,
+        "nearestResistance": 3570.31,
+        "demandZone": [
+          3568.24,
+          3569.63
+        ],
+        "supplyZone": [
+          3571.72,
+          3572.91
+        ],
+        "volatilityRegime": "VALID",
+        "atrValue": 4,
+        "volumeConfirmed": false,
+        "obvAligned": false,
+        "setupComplete": false,
+        "summary": "5M setup incomplete (NEUTRAL, Volatility:VALID, Sweep:NONE, Retest:YES)."
+      },
+      "confirmation1M": {
+        "direction": "WAIT",
+        "closedCandleTime": 1795689180000,
+        "closedCandleBullish": false,
+        "emaAligned": false,
+        "supertrendAligned": false,
+        "rsiMomentumOk": true,
+        "macdMomentumOk": true,
+        "dmiAligned": false,
+        "volumeOk": true,
+        "confirmed": false,
+        "summary": "1M closed bar waiting (closed candle direction unconfirmed, EMA:NO, ST:NO, DMI:NO, Mom:OK, Vol:OK, Drift:OK)."
+      },
+      "all11Indicators": [
+        {
+          "id": "ema",
+          "name": "EMA Stack (9/21/50/200)",
+          "category": "TREND",
+          "bias": "SELL",
+          "primaryValue": "$3569.50",
+          "secondaryValues": {
+            "EMA9": "3566.92",
+            "EMA50": "3571.80",
+            "EMA200": "3552.90",
+            "ClusterWeight": "Unified Trend Cluster"
+          },
+          "explanation": "EMA 9/21/50/200 alignment (SELL) grouped into unified Trend Cluster to prevent duplicate confidence inflation.",
+          "score": -0.5
+        },
+        {
+          "id": "sma",
+          "name": "SMA Stack (20/50/200)",
+          "category": "TREND",
+          "bias": "SELL",
+          "primaryValue": "$3569.98",
+          "secondaryValues": {
+            "SMA20": "3571.30",
+            "SMA200": "3566.32",
+            "ClusterWeight": "Unified Trend Cluster"
+          },
+          "explanation": "SMA 20/50/200 baseline trend (SELL), deduplicated alongside EMA & Supertrend.",
+          "score": -0.4
+        },
+        {
+          "id": "supertrend",
+          "name": "Supertrend (10, 3)",
+          "category": "TREND",
+          "bias": "SELL",
+          "primaryValue": "$3573.49 (Bear)",
+          "secondaryValues": {
+            "Direction": "BEARISH"
+          },
+          "explanation": "ATR trailing band indicates bearish trend posture.",
+          "score": -1
+        },
+        {
+          "id": "adx",
+          "name": "ADX (14)",
+          "category": "TREND",
+          "bias": "HOLD",
+          "primaryValue": "19.0",
+          "secondaryValues": {
+            "Strength": "Weak/Chop"
+          },
+          "explanation": "Measures trend intensity (19.0), non-directional below 20.",
+          "score": 0
+        },
+        {
+          "id": "dmi",
+          "name": "DMI (+DI / -DI 14)",
+          "category": "TREND",
+          "bias": "SELL",
+          "primaryValue": "+12.5 / -30.4",
+          "secondaryValues": {
+            "Spread": "-17.8"
+          },
+          "explanation": "Directional movement comparison (+DI vs -DI) indicates SELL pressure.",
+          "score": -0.75
+        },
+        {
+          "id": "rsi",
+          "name": "RSI (14)",
+          "category": "MOMENTUM",
+          "bias": "SELL",
+          "primaryValue": "33.0",
+          "secondaryValues": {
+            "Regime": "Balanced"
+          },
+          "explanation": "RSI(14) measures momentum balance and overbought/oversold exhaustion.",
+          "score": -0.7
+        },
+        {
+          "id": "macd",
+          "name": "MACD (12,26,9)",
+          "category": "MOMENTUM",
+          "bias": "SELL",
+          "primaryValue": "Hist -1.49",
+          "secondaryValues": {
+            "MACD": "-1.94",
+            "Signal": "-0.44"
+          },
+          "explanation": "MACD line vs signal & histogram slope reflect SELL momentum.",
+          "score": -0.75
+        },
+        {
+          "id": "bollinger_bands",
+          "name": "Bollinger Bands (20, 2)",
+          "category": "VOLATILITY",
+          "bias": "HOLD",
+          "primaryValue": "Mid $3571.30 (%B -1%)",
+          "secondaryValues": {
+            "Upper": "3580.44",
+            "Lower": "3562.15"
+          },
+          "explanation": "Price %B position relative to upper/mid/lower volatility envelope.",
+          "score": 0
+        },
+        {
+          "id": "atr",
+          "name": "ATR (14)",
+          "category": "VOLATILITY",
+          "bias": "HOLD",
+          "primaryValue": "$4.00",
+          "secondaryValues": {
+            "Pct": "0.112%"
+          },
+          "explanation": "True-range volatility gauge used strictly for stop distance, targets, and regime checks.",
+          "score": 0
+        },
+        {
+          "id": "volume",
+          "name": "Volume (vs 20-MA)",
+          "category": "VOLUME",
+          "bias": "HOLD",
+          "primaryValue": "0.72× Avg",
+          "secondaryValues": {
+            "Source": "Exchange"
+          },
+          "explanation": "Participation strength relative to 20-bar moving average (EXCHANGE).",
+          "score": 0,
+          "volumeType": "EXCHANGE"
+        },
+        {
+          "id": "obv",
+          "name": "OBV (Cumulative vs 20-EMA)",
+          "category": "VOLUME",
+          "bias": "SELL",
+          "primaryValue": "-59,136",
+          "secondaryValues": {
+            "EMA20": "-53,561"
+          },
+          "explanation": "Cumulative volume flow relative to its 20-EMA (EXCHANGE).",
+          "score": -0.65,
+          "volumeType": "EXCHANGE"
+        }
+      ],
+      "mandatoryGates": [
+        {
+          "label": "Market Data & Feed Integrity",
+          "passed": true,
+          "detail": "Closed candles verified across 1H/15M/5M/1M; Spot spread $0.63."
+        },
+        {
+          "label": "1H Major Trend Established (ADX >= 18)",
+          "passed": true,
+          "detail": "1H major trend BULLISH: EMA/SMA/Supertrend cluster aligned, ADX 19.9, DMI (+22.1/-17.7)."
+        },
+        {
+          "label": "15M Market Structure Agreement with 1H",
+          "passed": false,
+          "detail": "15M structure (BEARISH) conflicts or lacks confirmation vs 1H (BULLISH)."
+        },
+        {
+          "label": "5M Entry Setup & Volatility Regime",
+          "passed": false,
+          "detail": "5M setup incomplete (NEUTRAL, Volatility:VALID, Sweep:NONE, Retest:YES)."
+        },
+        {
+          "label": "1M Closed-Candle Final Confirmation",
+          "passed": false,
+          "detail": "1M closed bar waiting (closed candle direction unconfirmed, EMA:NO, ST:NO, DMI:NO, Mom:OK, Vol:OK, Drift:OK)."
+        },
+        {
+          "label": "Volume/OBV & Momentum Non-Contradiction",
+          "passed": false,
+          "detail": "Blocked: 5M/1M OBV opposing · 15M RSI 41.1 outside range · 15M MACD hist -0.77 opposing."
+        },
+        {
+          "label": "Risk Management & Single TP (>= 1:1.5 R:R)",
+          "passed": true,
+          "detail": "Entry $3562.55 · SL $3553.15 · Single TP $3577.19 (1:1.56 R:R, Spread $0.63)."
+        },
+        {
+          "label": "Setup Quality Score (>= 75/100)",
+          "passed": false,
+          "detail": "Calculated score 34/100 (NO TRADE) vs 75/100 ANALYSIS threshold."
+        }
+      ],
+      "confirmations": [
+        "Market Data & Feed Integrity: Closed candles verified across 1H/15M/5M/1M; Spot spread $0.63.",
+        "1H Major Trend Established (ADX >= 18): 1H major trend BULLISH: EMA/SMA/Supertrend cluster aligned, ADX 19.9, DMI (+22.1/-17.7).",
+        "Risk Management & Single TP (>= 1:1.5 R:R): Entry $3562.55 · SL $3553.15 · Single TP $3577.19 (1:1.56 R:R, Spread $0.63)."
+      ],
+      "blockers": [
+        "15M Market Structure Agreement with 1H — 15M structure (BEARISH) conflicts or lacks confirmation vs 1H (BULLISH).",
+        "5M Entry Setup & Volatility Regime — 5M setup incomplete (NEUTRAL, Volatility:VALID, Sweep:NONE, Retest:YES).",
+        "1M Closed-Candle Final Confirmation — 1M closed bar waiting (closed candle direction unconfirmed, EMA:NO, ST:NO, DMI:NO, Mom:OK, Vol:OK, Drift:OK).",
+        "Volume/OBV & Momentum Non-Contradiction — Blocked: 5M/1M OBV opposing · 15M RSI 41.1 outside range · 15M MACD hist -0.77 opposing.",
+        "Setup Quality Score (>= 75/100) — Calculated score 34/100 (NO TRADE) vs 75/100 ANALYSIS threshold."
+      ],
+      "generatedAt": "2026-11-26T10:34:03.107Z",
+      "validUntil": "2026-11-26T10:49:03.107Z",
+      "feedIntegrity": {
+        "valid": true,
+        "spotSource": "Swissquote Spot XAU/USD BBO",
+        "candleSource": "OANDA:XAUUSD Spot OHLC Stream",
+        "priceBasis": "Structural OHLC: Real-time OANDA Spot XAU/USD · Execution/Monitoring: Real-time Swissquote Spot XAU/USD BBO",
+        "spotPrice": 3562.55,
+        "futuresPrice": null,
+        "basisDiffUsd": null,
+        "basisDiffPct": null,
+        "spreadUsd": 0.634,
+        "spreadAcceptable": true,
+        "staleFeeds": [],
+        "ohlcErrors": [],
+        "gapWarnings": [],
+        "closedCandlesVerified": true,
+        "blockingReasons": []
+      },
+      "newsProtection": {
+        "status": "CLEAR",
+        "warningActive": false,
+        "blocked": false,
+        "safeFallbackActive": false,
+        "reasonCode": "NONE",
+        "headline": "NO IMMINENT HIGH-IMPACT USD NEWS",
+        "subtext": "Next USD High-Impact event: ISM Manufacturing PMI on Tuesday, December 1 at 8:30 PM IST.",
+        "activeEvent": null,
+        "upcomingEvent": {
+          "id": "tv-1001650049604",
+          "title": "ISM Manufacturing PMI",
+          "currency": "USD",
+          "impact": "HIGH",
+          "timestampMs": 1796137200000,
+          "isoUtc": "2026-12-01T15:00:00.000Z",
+          "istDateKey": "2026-12-01",
+          "istDateLabel": "Tuesday, December 1",
+          "istYear": "2026",
+          "istTimeLabel": "8:30 PM",
+          "actual": null,
+          "forecast": "55.2",
+          "previous": "55.5",
+          "source": "TradingView Calendar"
+        },
+        "minutesToEvent": 7466,
+        "minutesSinceEvent": null,
+        "marketStability": {
+          "quoteLive": true,
+          "spreadOk": true,
+          "spreadUsd": 0.634,
+          "volatilityOk": true,
+          "volatilityDetail": "Volatility and spread normalized"
+        },
+        "feedStatus": "LIVE",
+        "dataStatusWarning": null,
+        "evaluatedAt": "2026-11-26T10:34:03.100Z",
+        "config": {
+          "warningLeadMinutes": 60,
+          "preEventBlockMinutes": 15,
+          "minPostEventBlockMinutes": 15,
+          "maxPostEventBlockMinutes": 45,
+          "maxNewsCacheAgeMinutes": 60
+        }
+      }
+    },
+    "newsProtection": {
+      "status": "CLEAR",
+      "warningActive": false,
+      "blocked": false,
+      "safeFallbackActive": false,
+      "reasonCode": "NONE",
+      "headline": "NO IMMINENT HIGH-IMPACT USD NEWS",
+      "subtext": "Next USD High-Impact event: ISM Manufacturing PMI on Tuesday, December 1 at 8:30 PM IST.",
+      "activeEvent": null,
+      "upcomingEvent": {
+        "id": "tv-1001650049604",
+        "title": "ISM Manufacturing PMI",
+        "currency": "USD",
+        "impact": "HIGH",
+        "timestampMs": 1796137200000,
+        "isoUtc": "2026-12-01T15:00:00.000Z",
+        "istDateKey": "2026-12-01",
+        "istDateLabel": "Tuesday, December 1",
+        "istYear": "2026",
+        "istTimeLabel": "8:30 PM",
+        "actual": null,
+        "forecast": "55.2",
+        "previous": "55.5",
+        "source": "TradingView Calendar"
+      },
+      "minutesToEvent": 7466,
+      "minutesSinceEvent": null,
+      "marketStability": {
+        "quoteLive": true,
+        "spreadOk": true,
+        "spreadUsd": 0.634,
+        "volatilityOk": true,
+        "volatilityDetail": "Volatility and spread normalized"
+      },
+      "feedStatus": "LIVE",
+      "dataStatusWarning": null,
+      "evaluatedAt": "2026-11-26T10:34:03.100Z",
+      "config": {
+        "warningLeadMinutes": 60,
+        "preEventBlockMinutes": 15,
+        "minPostEventBlockMinutes": 15,
+        "maxPostEventBlockMinutes": 45,
+        "maxNewsCacheAgeMinutes": 60
+      }
+    }
+  },
+  {
     "id": "08efdeb4-c763-48ca-bf00-f40aa9067306",
     "createdAt": "2026-11-25T08:37:50.531Z",
     "marketDataTimestamp": 1795595870213,

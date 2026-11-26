@@ -15,6 +15,7 @@ import {
   fetchCandles,
   fetchLiveXauUsdQuote,
   fetchPureFuturesCandles,
+  fetchTradingViewSpotCandles,
   getPureSpotCandles,
   getRecordedSpot1mCandlesSince,
 } from './marketData.ts';
@@ -115,44 +116,112 @@ export async function fetchStrategyDatasets(): Promise<StrategyDatasetsInput> {
   const hasFresh5mSpot = isFreshSpotDataset(spot5m, '5m', max5mAge, nowSec, 60);
   const hasFresh15mSpot = isFreshSpotDataset(spot15m, '15m', max15mAge, nowSec, 30);
 
-  const isFuturesWindowFresh = (ds: CandleDataset, tf: '1m' | '5m' | '15m'): boolean => {
+  const isFuturesWindowFresh = (ds: CandleDataset | null, tf: '1m' | '5m' | '15m' | '1H'): boolean => {
     if (!ds || ds.candles.length < 30) return false;
     const lastBar = ds.candles[ds.candles.length - 1];
     if (!lastBar) return false;
-    const maxAllowedLag = tf === '1m' ? 900 : Math.max(1_500, TIMEFRAME_SECONDS[tf] * 2 + 1_200);
+    const maxAllowedLag =
+      tf === '1m'
+        ? 900
+        : tf === '1H'
+        ? 7_200
+        : Math.max(1_500, TIMEFRAME_SECONDS[tf] * 2 + 1_200);
     return nowSec - lastBar.time <= maxAllowedLag;
   };
 
   // Fetch 1m first so any detected COMEX GC=F contract rollover anchor is seeded before 1H/15m/5m load.
-  const f1m = await fetchPureFuturesCandles('1m')
-    .then((ds) => (hasFresh1mSpot && spot1m && !isFuturesWindowFresh(ds, '1m') ? spot1m : ds))
-    .catch((err) => {
-      if (isFreshSpotDataset(spot1m, '1m', max1mAge, nowSec, 30) && spot1m) {
-        return spot1m;
-      }
-      throw err;
-    });
+  let f1mErr: unknown = null;
+  const rawF1m = await fetchPureFuturesCandles('1m').catch((err) => {
+    f1mErr = err;
+    return null;
+  });
 
-  // Use identical global Yahoo Finance GC=F candles primarily across all 4 timeframes so
-  // Chrome and installed/shared PWA containers never diverge due to local Spot polling uptime.
-  // Fall back to contiguous Spot BBO candles only if GC=F is unavailable or stalled (e.g. COMEX break).
-  const [f1H, f15m, f5m] = await Promise.all([
-    fetchPureFuturesCandles('1H'),
-    fetchPureFuturesCandles('15m')
-      .then((ds) => (hasFresh15mSpot && spot15m && !isFuturesWindowFresh(ds, '15m') ? spot15m : ds))
-      .catch((err) => {
-        if (hasFresh15mSpot && spot15m) return spot15m;
-        throw err;
-      }),
-    fetchPureFuturesCandles('5m')
-      .then((ds) => (hasFresh5mSpot && spot5m && !isFuturesWindowFresh(ds, '5m') ? spot5m : ds))
-      .catch((err) => {
-        if (isFreshSpotDataset(spot5m, '5m', max5mAge, nowSec, 30) && spot5m) {
-          return spot5m;
-        }
-        throw err;
-      }),
+  // Fetch 1H/15m/5m in parallel (tolerate per-TF failures cleanly so global Spot OHLC fallback can take over on COMEX holidays/outages)
+  const [rawF1H, rawF15m, rawF5m] = await Promise.all([
+    fetchPureFuturesCandles('1H').catch(() => null),
+    fetchPureFuturesCandles('15m').catch(() => null),
+    fetchPureFuturesCandles('5m').catch(() => null),
   ]);
+
+  const futures1HOk = isFuturesWindowFresh(rawF1H, '1H');
+  const futures15mOk = isFuturesWindowFresh(rawF15m, '15m');
+  const futures5mOk = isFuturesWindowFresh(rawF5m, '5m');
+  const futures1mOk = isFuturesWindowFresh(rawF1m, '1m');
+
+  // If 1H COMEX GC=F is halted/stale (>2h) or both 15m+5m COMEX feeds are halted while live Spot FX is open,
+  // switch ALL 4 strategy timeframes consistently onto real-time Spot XAU/USD OHLC so Chrome/PWA & all gates share one Spot scale.
+  const needsUnifiedSpotFallback =
+    !futures1HOk ||
+    (!futures15mOk && !hasFresh15mSpot) ||
+    (!futures5mOk && !hasFresh5mSpot);
+
+  if (needsUnifiedSpotFallback) {
+    const [tv1H, tv15m, tv5m, tv1m] = await Promise.all([
+      fetchTradingViewSpotCandles('1H'),
+      fetchTradingViewSpotCandles('15m'),
+      fetchTradingViewSpotCandles('5m'),
+      fetchTradingViewSpotCandles('1m'),
+    ]);
+
+    const tv1HTime = tv1H?.candles[tv1H.candles.length - 1]?.time ?? 0;
+    const f1HTime = rawF1H?.candles[rawF1H.candles.length - 1]?.time ?? 0;
+
+    if (tv1H && tv15m && tv5m && (tv1m || (hasFresh1mSpot && spot1m)) && tv1HTime >= f1HTime) {
+      return {
+        tf1H: tv1H,
+        tf15m: tv15m,
+        tf5m: tv5m,
+        tf1m: tv1m ?? spot1m!,
+        spot1mHistory,
+      };
+    }
+  }
+
+  let f1m = rawF1m;
+  if (!futures1mOk) {
+    if (hasFresh1mSpot && spot1m) {
+      f1m = spot1m;
+    } else {
+      const tv1m = await fetchTradingViewSpotCandles('1m');
+      if (tv1m && (f1m == null || tv1m.candles[tv1m.candles.length - 1].time > f1m.candles[f1m.candles.length - 1].time)) {
+        f1m = tv1m;
+      } else if (!f1m && isFreshSpotDataset(spot1m, '1m', max1mAge, nowSec, 30) && spot1m) {
+        f1m = spot1m;
+      }
+    }
+  }
+  if (!f1m) {
+    throw f1mErr instanceof Error ? f1mErr : new Error('1m candles unavailable');
+  }
+
+  const f1H = rawF1H ?? (await fetchTradingViewSpotCandles('1H'));
+  if (!f1H) {
+    throw new Error('1H candles unavailable');
+  }
+
+  let f15m = rawF15m;
+  if (!futures15mOk) {
+    if (hasFresh15mSpot && spot15m) {
+      f15m = spot15m;
+    } else if (!f15m) {
+      f15m = await fetchTradingViewSpotCandles('15m');
+    }
+  }
+  if (!f15m) {
+    throw new Error('15m candles unavailable');
+  }
+
+  let f5m = rawF5m;
+  if (!futures5mOk) {
+    if (hasFresh5mSpot && spot5m) {
+      f5m = spot5m;
+    } else if (!f5m) {
+      f5m = await fetchTradingViewSpotCandles('5m');
+    }
+  }
+  if (!f5m) {
+    throw new Error('5m candles unavailable');
+  }
 
   return {
     tf1H: f1H,

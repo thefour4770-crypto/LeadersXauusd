@@ -2291,6 +2291,40 @@ test('39. Symmetric BUY protection: blocks 15m lower-high selloff BOS:BULLISH an
   assert.notEqual(resDelayedDump.evaluation.action, 'BUY');
 });
 
+test('40. validateFeedIntegrity approves synchronized OANDA Spot OHLC and blocks divergent Spot OHLC vs Swissquote BBO', () => {
+  const indicators = createAutoPerfectIndicators();
+  const bull = buildBullishDatasets(3562);
+  const oandaDatasets = {
+    tf1H: makeDataset('1H', bull.datasets.tf1H.candles, 'OANDA:XAUUSD Spot OHLC Stream'),
+    tf15m: makeDataset('15m', bull.datasets.tf15m.candles, 'OANDA:XAUUSD Spot OHLC Stream'),
+    tf5m: makeDataset('5m', bull.datasets.tf5m.candles, 'OANDA:XAUUSD Spot OHLC Stream'),
+    tf1m: makeDataset('1m', bull.datasets.tf1m.candles, 'OANDA:XAUUSD Spot OHLC Stream'),
+  };
+
+  const synced = evaluateStrictMultiTimeframeStrategy({
+    datasets: oandaDatasets,
+    quote: bull.quote,
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+  assert.equal(synced.evaluation.feedIntegrity.valid, true);
+  assert.ok(synced.evaluation.feedIntegrity.priceBasis.includes('OANDA Spot XAU/USD'));
+
+  const divergentQuote = makeQuote(bull.quote.mid + 95); // >2.5% discrepancy
+  const divergent = evaluateStrictMultiTimeframeStrategy({
+    datasets: oandaDatasets,
+    quote: divergentQuote,
+    indicatorConfigs: indicators,
+    mode: 'SURE',
+    nowMs: NOW_MS,
+  });
+  assert.equal(divergent.evaluation.feedIntegrity.valid, false);
+  assert.ok(
+    divergent.evaluation.feedIntegrity.blockingReasons.some((r) => r.includes('Spot OHLC vs live Swissquote'))
+  );
+});
+
 
 
 

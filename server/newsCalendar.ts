@@ -15,6 +15,7 @@ import { atrArray, lastNonNull } from './indicators.ts';
 import {
   fetchLiveXauUsdQuote,
   fetchPureFuturesCandles,
+  fetchTradingViewSpotCandles,
   getPureSpotCandles,
 } from './marketData.ts';
 
@@ -1096,13 +1097,20 @@ async function resolveMarketContextForNews(options?: {
   let candles5m = options?.candles5m ?? null;
   let candles1m = options?.candles1m ?? null;
 
+  const nowSec = Math.floor(Date.now() / 1000);
   if (candles5m == null) {
     const spot5 = await getPureSpotCandles('5m').catch(() => null);
     if (spot5 && spot5.candles.length >= 20) {
       candles5m = spot5.candles;
     } else {
       const f5 = await fetchPureFuturesCandles('5m').catch(() => null);
-      candles5m = f5?.candles ?? null;
+      const f5Last = f5?.candles[f5.candles.length - 1]?.time ?? 0;
+      if (f5 && (quote?.freshness !== 'LIVE' || nowSec - f5Last <= 1_800)) {
+        candles5m = f5.candles;
+      } else {
+        const tv5 = await fetchTradingViewSpotCandles('5m').catch(() => null);
+        candles5m = tv5?.candles ?? f5?.candles ?? null;
+      }
     }
   }
 
@@ -1112,7 +1120,13 @@ async function resolveMarketContextForNews(options?: {
       candles1m = spot1.candles;
     } else {
       const f1 = await fetchPureFuturesCandles('1m').catch(() => null);
-      candles1m = f1?.candles ?? null;
+      const f1Last = f1?.candles[f1.candles.length - 1]?.time ?? 0;
+      if (f1 && (quote?.freshness !== 'LIVE' || nowSec - f1Last <= 900)) {
+        candles1m = f1.candles;
+      } else {
+        const tv1 = await fetchTradingViewSpotCandles('1m').catch(() => null);
+        candles1m = tv1?.candles ?? f1?.candles ?? null;
+      }
     }
   }
 

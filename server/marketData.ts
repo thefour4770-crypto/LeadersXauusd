@@ -25,11 +25,24 @@ const DATA_DIR = path.resolve(process.cwd(), 'data');
 const LIVE_SPOT_1M_FILE = path.join(DATA_DIR, 'live-spot-1m.json');
 const YAHOO_CANDLE_CACHE_FILE = path.join(DATA_DIR, 'yahoo-candles-cache.json');
 const YAHOO_CHART_HOSTS = ['https://query1.finance.yahoo.com', 'https://query2.finance.yahoo.com'] as const;
+const TRADINGVIEW_WS_URL = 'wss://data.tradingview.com/socket.io/websocket';
+const TRADINGVIEW_TIMEFRAME_MAP: Record<Timeframe, string> = {
+  '1m': '1',
+  '5m': '5',
+  '15m': '15',
+  '30m': '30',
+  '1H': '60',
+  '4H': '240',
+  '1D': '1D',
+  '1W': '1W',
+};
 
 const quoteCache: { current: CacheEntry<MarketQuote> | null } = { current: null };
 const prevCloseCache: { current: CacheEntry<number> | null } = { current: null };
 const rawYahooCache = new Map<Timeframe, CacheEntry<CandleDataset>>();
 const inFlightYahooPromises = new Map<Timeframe, Promise<CandleDataset>>();
+const tvSpotCache = new Map<Timeframe, CacheEntry<CandleDataset>>();
+const inFlightTvPromises = new Map<Timeframe, Promise<CandleDataset | null>>();
 
 // Real-time Swissquote Spot 1m bar accumulator persisted across restarts
 const liveSpot1mCandles = new Map<number, Candle>();
@@ -41,6 +54,7 @@ const COLLECTOR_ACTIVE_MS = 750;
 const COLLECTOR_IDLE_MS = 3_000;
 const COLLECTOR_IDLE_AFTER_MS = 120_000;
 const YAHOO_RATE_LIMIT_DEFAULT_MS = 60_000;
+const TV_ERROR_COOLDOWN_MS = 15_000;
 
 let lastClientActivityAt = Date.now();
 let collectorTimer: ReturnType<typeof setTimeout> | null = null;
@@ -58,6 +72,7 @@ const detectedRolloverAnchors = new Map<number, number>(); // rolloverTimeSec ->
 let spotStoreLoadPromise: Promise<void> | null = null;
 let yahooCacheLoadPromise: Promise<void> | null = null;
 let yahooRateLimitedUntilMs = 0;
+let tvCooldownUntilMs = 0;
 let yahooHostIdx = 0;
 const IS_TEST_ENV = Boolean(
   process.env.NODE_TEST_CONTEXT || process.argv.some((a) => a.includes('--test'))
@@ -536,7 +551,28 @@ async function fetchPreviousCloseCached(): Promise<number | undefined> {
     return prevCloseCache.current.data;
   }
 
-  // Reuse 1D dataset close if already cached to avoid redundant Yahoo API traffic
+  // Prefer real Spot XAU/USD 1D previous daily bar close so daily % change matches Swissquote Spot XAU/USD scale
+  const cachedTv1D = tvSpotCache.get('1D')?.data;
+  if (cachedTv1D && cachedTv1D.candles.length >= 2) {
+    const prevSpotBar = cachedTv1D.candles[cachedTv1D.candles.length - 2];
+    if (prevSpotBar && prevSpotBar.close > 0) {
+      prevCloseCache.current = { data: prevSpotBar.close, fetchedAt: now };
+      return prevSpotBar.close;
+    }
+  }
+
+  if (!IS_TEST_ENV) {
+    const tv1D = await fetchTradingViewSpotCandles('1D').catch(() => null);
+    if (tv1D && tv1D.candles.length >= 2) {
+      const prevSpotBar = tv1D.candles[tv1D.candles.length - 2];
+      if (prevSpotBar && prevSpotBar.close > 0) {
+        prevCloseCache.current = { data: prevSpotBar.close, fetchedAt: now };
+        return prevSpotBar.close;
+      }
+    }
+  }
+
+  // Reuse 1D Yahoo dataset close only if Spot 1D is unavailable
   const cached1D = rawYahooCache.get('1D')?.data;
   if (cached1D && cached1D.candles.length >= 2) {
     const prevBar = cached1D.candles[cached1D.candles.length - 2];
@@ -571,10 +607,19 @@ async function fetchPreviousCloseCached(): Promise<number | undefined> {
     }
     if (!res.ok) return prevCloseCache.current?.data;
     const yJson = (await res.json()) as {
-      chart?: { result?: Array<{ meta?: { chartPreviousClose?: number; previousClose?: number } }> };
+      chart?: {
+        result?: Array<{
+          meta?: { previousClose?: number };
+          indicators?: { quote?: Array<{ close?: Array<number | null> }> };
+        }>;
+      };
     };
-    const meta = yJson?.chart?.result?.[0]?.meta;
-    const prev = meta?.previousClose ?? meta?.chartPreviousClose;
+    const result = yJson?.chart?.result?.[0];
+    const closes = (result?.indicators?.quote?.[0]?.close ?? []).filter(
+      (c): c is number => typeof c === 'number' && Number.isFinite(c) && c > 0
+    );
+    const prevCandleClose = closes.length >= 2 ? Number(closes[closes.length - 2].toFixed(2)) : undefined;
+    const prev = result?.meta?.previousClose ?? prevCandleClose;
     if (typeof prev === 'number' && Number.isFinite(prev) && prev > 0) {
       prevCloseCache.current = { data: prev, fetchedAt: now };
       return prev;
@@ -1061,6 +1106,240 @@ export async function fetchPureFuturesCandles(timeframe: Timeframe): Promise<Can
 }
 
 /**
+ * Fetches real-time Spot XAU/USD OHLC + broker tick volume from TradingView's public OANDA:XAUUSD stream.
+ * Used cleanly whenever COMEX GC=F futures candles are halted/stale (e.g. US holidays) while Global Spot FX is live.
+ */
+export async function fetchTradingViewSpotCandles(
+  timeframe: Timeframe,
+  barCount = 250
+): Promise<CandleDataset | null> {
+  const cfg = YAHOO_TIMEFRAME_MAP[timeframe];
+  const tvInterval = TRADINGVIEW_TIMEFRAME_MAP[timeframe];
+  if (!cfg || !tvInterval) return null;
+
+  const now = Date.now();
+  const cached = tvSpotCache.get(timeframe);
+  const crossesCandleBoundary =
+    (timeframe === '1m' || timeframe === '5m') &&
+    cached != null &&
+    Math.floor(cached.fetchedAt / (cfg.seconds * 1000)) < Math.floor(now / (cfg.seconds * 1000)) &&
+    now % (cfg.seconds * 1000) >= 2_500 &&
+    now - cached.fetchedAt >= 8_000;
+
+  if (cached && !crossesCandleBoundary && now - cached.fetchedAt < cfg.cacheTtlMs) {
+    return refreshDatasetFreshness(cached.data, now);
+  }
+
+  if (now < tvCooldownUntilMs) {
+    if (cached && now - cached.fetchedAt <= 15 * 60_000) {
+      return refreshDatasetFreshness(cached.data, now);
+    }
+    return null;
+  }
+
+  const inFlight = inFlightTvPromises.get(timeframe);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const task = (async (): Promise<CandleDataset | null> => {
+    try {
+      const rawBars = await new Promise<Array<[number, number, number, number, number, number?]>>(
+        (resolve, reject) => {
+          const NodeWebSocket = WebSocket as unknown as {
+            new (url: string, options?: { headers?: Record<string, string> }): WebSocket;
+          };
+          const ws = new NodeWebSocket(TRADINGVIEW_WS_URL, {
+            headers: {
+              Origin: 'https://www.tradingview.com',
+            },
+          });
+          const sessionId = `cs_${Math.random().toString(36).slice(2, 10)}`;
+          const collected: Array<[number, number, number, number, number, number?]> = [];
+          let settled = false;
+
+          const finish = (err?: Error) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeout);
+            try {
+              ws.close();
+            } catch {
+              // Ignore socket close error
+            }
+            if (err) reject(err);
+            else resolve(collected);
+          };
+
+          const timeout = setTimeout(() => {
+            finish(new Error(`TradingView Spot WS timeout (${timeframe})`));
+          }, 6_000);
+
+          const sendPacket = (method: string, params: unknown[]) => {
+            const payload = JSON.stringify({ m: method, p: params });
+            ws.send(`~m~${payload.length}~m~${payload}`);
+          };
+
+          ws.onopen = () => {
+            try {
+              sendPacket('set_auth_token', ['unauthorized_user_token']);
+              sendPacket('chart_create_session', [sessionId, '']);
+              sendPacket('resolve_symbol', [
+                sessionId,
+                'sds_sym_1',
+                '={"symbol":"OANDA:XAUUSD","adjustment":"splits"}',
+              ]);
+              sendPacket('create_series', [
+                sessionId,
+                'sds_1',
+                's1',
+                'sds_sym_1',
+                tvInterval,
+                barCount,
+              ]);
+            } catch (err) {
+              finish(err instanceof Error ? err : new Error('TradingView WS send failed'));
+            }
+          };
+
+          ws.onmessage = (event) => {
+            const raw = String(event.data);
+            let idx = 0;
+            while (idx < raw.length) {
+              if (!raw.startsWith('~m~', idx)) break;
+              const nextMarker = raw.indexOf('~m~', idx + 3);
+              if (nextMarker === -1) break;
+              const len = Number(raw.slice(idx + 3, nextMarker));
+              if (!Number.isFinite(len) || len <= 0) break;
+              const bodyStart = nextMarker + 3;
+              const body = raw.slice(bodyStart, bodyStart + len);
+              idx = bodyStart + len;
+
+              if (body.startsWith('~h~')) {
+                try {
+                  ws.send(`~m~${body.length}~m~${body}`);
+                } catch {
+                  // Ignore heartbeat send failure
+                }
+                continue;
+              }
+
+              try {
+                const pkt = JSON.parse(body) as {
+                  m?: string;
+                  p?: [
+                    string,
+                    { sds_1?: { s?: Array<{ v?: [number, number, number, number, number, number?] }> } },
+                  ];
+                };
+                if (pkt.m === 'timescale_update') {
+                  const series = pkt.p?.[1]?.sds_1?.s;
+                  if (Array.isArray(series)) {
+                    for (const item of series) {
+                      if (Array.isArray(item?.v) && item.v.length >= 5) {
+                        collected.push(item.v);
+                      }
+                    }
+                  }
+                } else if (pkt.m === 'series_error' || pkt.m === 'symbol_error') {
+                  finish(new Error(`TradingView WS ${pkt.m} for ${timeframe}`));
+                  return;
+                } else if (pkt.m === 'series_completed') {
+                  finish();
+                  return;
+                }
+              } catch {
+                // Ignore non-JSON control packets
+              }
+            }
+          };
+
+          ws.onerror = () => {
+            finish(new Error(`TradingView WS error (${timeframe})`));
+          };
+
+          ws.onclose = () => {
+            if (!settled) {
+              if (collected.length >= 30) finish();
+              else finish(new Error(`TradingView WS closed prematurely (${timeframe})`));
+            }
+          };
+        }
+      );
+
+      const isIntraday = cfg.seconds < 86_400;
+      const byTime = new Map<number, Candle>();
+      for (const bar of rawBars) {
+        const [t, o, h, l, c, v] = bar;
+        const bucketTime = isIntraday ? Math.floor(t / cfg.seconds) * cfg.seconds : Math.floor(t);
+        const vol = typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.round(v) : 0;
+        const candidate: Candle = {
+          time: bucketTime,
+          open: roundPrice2(o),
+          high: roundPrice2(h),
+          low: roundPrice2(l),
+          close: roundPrice2(c),
+          volume: vol,
+        };
+        if (isValidCandleRecord(candidate)) {
+          byTime.set(bucketTime, candidate);
+        }
+      }
+
+      const candles = Array.from(byTime.values()).sort((a, b) => a.time - b.time);
+      if (candles.length < 30) {
+        return null;
+      }
+
+      const lastCandleMs = candles[candles.length - 1].time * 1000;
+      const quoteTs = quoteCache.current?.data.freshness === 'LIVE' ? quoteCache.current.data.timestamp : 0;
+      const latestTimestamp = Math.max(lastCandleMs, quoteTs);
+      const ageMs = Math.max(0, Date.now() - latestTimestamp);
+      let freshness: FreshnessStatus = 'LIVE';
+      if (ageMs > Math.max(180_000, cfg.seconds * 1000 * 2) && ageMs <= 4 * 24 * 3600 * 1000) {
+        freshness = 'DELAYED';
+      } else if (ageMs > 4 * 24 * 3600 * 1000) {
+        freshness = 'UNAVAILABLE';
+      }
+
+      const nonZeroCount = candles.filter((c) => c.volume > 0).length;
+      const nonZeroVolumeRatio = candles.length > 0 ? nonZeroCount / candles.length : 0;
+      const hasExchangeVolume = nonZeroVolumeRatio >= 0.4;
+
+      const dataset: CandleDataset = {
+        symbol: 'XAU/USD (Live Spot)',
+        candleSource: 'OANDA:XAUUSD Spot OHLC Stream',
+        timeframe,
+        candles,
+        latestTimestamp,
+        freshness,
+        hasExchangeVolume,
+        nonZeroVolumeRatio,
+        volumeNote: hasExchangeVolume
+          ? 'Real-time OANDA XAU/USD Spot OHLC with broker tick volume'
+          : 'Real-time OANDA XAU/USD Spot OHLC; range activity proxy used where tick volume is zero',
+      };
+
+      if (freshness !== 'UNAVAILABLE') {
+        tvSpotCache.set(timeframe, { data: dataset, fetchedAt: Date.now() });
+      }
+      return dataset;
+    } catch {
+      tvCooldownUntilMs = Date.now() + TV_ERROR_COOLDOWN_MS;
+      if (cached && Date.now() - cached.fetchedAt <= 15 * 60_000) {
+        return refreshDatasetFreshness(cached.data);
+      }
+      return null;
+    } finally {
+      inFlightTvPromises.delete(timeframe);
+    }
+  })();
+
+  inFlightTvPromises.set(timeframe, task);
+  return task;
+}
+
+/**
  * Pure Swissquote Spot XAU/USD candles aggregated solely from recorded real-time Spot BBO ticks.
  * Never fabricates missing intervals or mixes COMEX futures candles.
  */
@@ -1215,8 +1494,10 @@ export async function fetchCandles(timeframe: Timeframe): Promise<CandleDataset>
     throw new Error(`Unsupported timeframe: ${timeframe}`);
   }
 
-  const [baseDataset, liveQuote] = await Promise.all([
+  const [yahooOrSpot, liveQuote] = await Promise.all([
     fetchYahooCandlesBase(timeframe).catch(async (err) => {
+      const tvFallback = await fetchTradingViewSpotCandles(timeframe).catch(() => null);
+      if (tvFallback) return tvFallback;
       const spotFallback = await getPureSpotCandles(timeframe);
       if (spotFallback && spotFallback.candles.length >= 20) {
         return spotFallback;
@@ -1225,6 +1506,23 @@ export async function fetchCandles(timeframe: Timeframe): Promise<CandleDataset>
     }),
     fetchLiveXauUsdQuote(),
   ]);
+
+  let baseDataset = yahooOrSpot;
+  const isIntraday = cfg.seconds < 86_400;
+  const lastBaseBarTime = baseDataset.candles[baseDataset.candles.length - 1]?.time ?? 0;
+  const liveQuoteSec = Math.floor(liveQuote.timestamp / 1000);
+  if (
+    isIntraday &&
+    baseDataset.candleSource.includes('GC=F') &&
+    liveQuote.freshness === 'LIVE' &&
+    liveQuoteSec - lastBaseBarTime > Math.max(2_400, cfg.seconds * 3)
+  ) {
+    const tvSpot = await fetchTradingViewSpotCandles(timeframe).catch(() => null);
+    const tvLastTime = tvSpot?.candles[tvSpot.candles.length - 1]?.time ?? 0;
+    if (tvSpot && tvLastTime > lastBaseBarTime) {
+      baseDataset = tvSpot;
+    }
+  }
 
   const tfSeconds = cfg.seconds;
   const mergedByTime = new Map<number, Candle>();
@@ -1368,7 +1666,9 @@ export async function fetchCandles(timeframe: Timeframe): Promise<CandleDataset>
     latestTimestamp,
     freshness,
     candleSource: mergedLiveSpot
-      ? 'Yahoo Finance GC=F (Spot-Aligned) + Live Swissquote Spot XAU/USD'
+      ? baseDataset.candleSource.includes('GC=F')
+        ? 'Yahoo Finance GC=F (Spot-Aligned) + Live Swissquote Spot XAU/USD'
+        : `${baseDataset.candleSource} + Live Swissquote Spot XAU/USD`
       : baseDataset.candleSource,
   };
 }
@@ -1377,11 +1677,14 @@ export function __resetMarketDataCachesForTest(): void {
   if (!IS_TEST_ENV) return;
   rawYahooCache.clear();
   inFlightYahooPromises.clear();
+  tvSpotCache.clear();
+  inFlightTvPromises.clear();
   detectedRolloverAnchors.clear();
   liveSpot1mCandles.clear();
   quoteCache.current = null;
   prevCloseCache.current = null;
   yahooRateLimitedUntilMs = 0;
+  tvCooldownUntilMs = 0;
   yahooHostIdx = 0;
 }
 

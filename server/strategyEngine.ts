@@ -786,6 +786,20 @@ function validateFeedIntegrity(params: {
         `COMEX GC=F vs Spot XAU/USD basis anomaly (${basisDiffPct >= 0 ? '+' : ''}${basisDiffPct.toFixed(2)}% = $${basisDiffUsd.toFixed(2)}).`
       );
     }
+  } else if (!usesFutures && spotPrice != null) {
+    const finestSpotBar =
+      closedSets.tf1m[closedSets.tf1m.length - 1] ??
+      closedSets.tf5m[closedSets.tf5m.length - 1] ??
+      closedSets.tf15m[closedSets.tf15m.length - 1];
+    if (finestSpotBar && Number.isFinite(finestSpotBar.close) && finestSpotBar.close > 0) {
+      const spotDiffUsd = Number((finestSpotBar.close - spotPrice).toFixed(2));
+      const spotDiffPct = Number(((spotDiffUsd / spotPrice) * 100).toFixed(3));
+      if (Math.abs(spotDiffPct) > maxBasisDiffPct) {
+        blockingReasons.push(
+          `Spot OHLC vs live Swissquote XAU/USD anomaly (${spotDiffPct >= 0 ? '+' : ''}${spotDiffPct.toFixed(2)}% = $${spotDiffUsd.toFixed(2)}).`
+        );
+      }
+    }
   }
 
   const closedCandlesVerified = entries.every((e) => e.candles.length >= 30);
@@ -805,6 +819,8 @@ function validateFeedIntegrity(params: {
     ? basisDiffUsd != null
       ? `Structural OHLC: COMEX GC=F (~10m delayed exchange feed, basis ${basisDiffUsd >= 0 ? '+' : ''}$${basisDiffUsd.toFixed(2)} vs Spot) · Execution/Monitoring: Real-time Swissquote Spot XAU/USD BBO`
       : 'Structural OHLC: COMEX GC=F · Execution: Swissquote Spot XAU/USD'
+    : datasets.tf15m.candleSource.includes('OANDA')
+    ? 'Structural OHLC: Real-time OANDA Spot XAU/USD · Execution/Monitoring: Real-time Swissquote Spot XAU/USD BBO'
     : 'Pure Real-time Swissquote Spot XAU/USD OHLC & BBO Stream';
 
   return {
