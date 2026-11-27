@@ -1517,10 +1517,10 @@ export function evaluateStrictMultiTimeframeStrategy(
     (telemetryDir === 'BULLISH' && (struct15m.bosDetected === 'BULLISH' || struct15m.chochDetected === 'BULLISH')) ||
     (telemetryDir === 'BEARISH' && (struct15m.bosDetected === 'BEARISH' || struct15m.chochDetected === 'BEARISH'));
 
-  const rsi15mMinBull = mode === 'SURE' ? 45 : 44;
-  const rsi15mMaxBull = mode === 'SURE' ? 74 : 78;
-  const rsi15mMinBear = mode === 'SURE' ? 26 : 22;
-  const rsi15mMaxBear = mode === 'SURE' ? 55 : 58;
+  const rsi15mMinBull = mode === 'SURE' ? (bbPos15m >= 0.1 ? 43 : 45) : 44;
+  const rsi15mMaxBull = mode === 'SURE' ? (bbPos15m <= 0.9 ? 76 : 74) : 78;
+  const rsi15mMinBear = mode === 'SURE' ? (bbPos15m >= 0.1 ? 24 : 26) : 22;
+  const rsi15mMaxBear = mode === 'SURE' ? (bbPos15m <= 0.9 ? 57 : 55) : 58;
 
   const rsi15mOk =
     telemetryDir === 'BULLISH'
@@ -1950,7 +1950,7 @@ export function evaluateStrictMultiTimeframeStrategy(
     const minStopDist = Math.max(0.8, Number((atr5mRaw * (mode === 'SURE' ? 1.45 : 0.85)).toFixed(2)));
     const maxStopDist =
       mode === 'SURE'
-        ? Math.min(14.8, Math.max(12.5, Number((atr5mRaw * 2.6).toFixed(2))))
+        ? Math.min(14.8, Math.max(13.5, Number((atr5mRaw * 2.9).toFixed(2))))
         : Math.max(minStopDist + 1, Number((atr5mRaw * 3.9).toFixed(2)));
     const sr15m = computeSupportResistance(closed15m);
     const sr1H = computeSupportResistance(closed1H);
